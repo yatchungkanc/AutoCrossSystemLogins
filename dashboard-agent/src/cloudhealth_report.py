@@ -19,18 +19,18 @@ os.environ.setdefault("NODE_NO_WARNINGS", "1")
 from playwright.async_api import async_playwright
 
 # Import our modules
-from screenshot_capture import (
+from src.screenshot_capture import (
     capture_cloudhealth_screenshots,
     verify_browser_connection,
     BrowserConnectionError,
     ScreenshotCaptureError
 )
-from analysis import (
+from src.analysis import (
     analyze_cloudhealth_dashboard,
     AnalysisError,
     CopilotUnavailableError
 )
-from report_generator import (
+from src.report_generator import (
     generate_html_report,
     ReportGenerationError
 )
