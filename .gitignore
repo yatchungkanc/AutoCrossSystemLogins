@@ -10,6 +10,7 @@ __pycache__/
 .venv/
 dist/
 build/
+presentations/
 
 # Playwright browser session
 dashboard-agent/.auth_session/
