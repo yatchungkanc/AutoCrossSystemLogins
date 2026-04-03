@@ -117,9 +117,10 @@ class ReportGenerationAgent:
         logger.info("┌─ Step 1: Verify Browser Connection")
         
         if not await verify_browser_connection(CDP_PORT):
-            logger.error("└─ ✗ Browser session required")
-            logger.error("   Run: python -m src.orchestrator")
-            sys.exit(1)
+            raise BrowserConnectionError(
+                "No browser session found on CDP port {CDP_PORT}. "
+                "Run: python -m src.orchestrator"
+            )
         
         logger.info("└─ ✓ Browser session active")
     
@@ -277,7 +278,7 @@ async def main(focus_area: str = ""):
         logger.error("═" * 60)
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Agent failed: {e}")
+        logger.error(f"Agent failed: {e}", exc_info=True)
         sys.exit(1)
 
 

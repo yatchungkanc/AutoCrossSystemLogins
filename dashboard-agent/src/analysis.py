@@ -51,8 +51,9 @@ def build_analysis_prompt(
     """
     # Match keys from prompts.yaml structure: analysis_prompt.system / analysis_prompt.user_template
     ap = prompts_config.get("analysis_prompt", {})
-    system_prompt = ap.get("system", "").strip()
-    user_template = ap.get("user_template", "").strip()
+    # Use `or ""` so a null YAML value doesn't raise AttributeError on .strip()
+    system_prompt = (ap.get("system") or "").strip()
+    user_template = (ap.get("user_template") or "").strip()
     
     if not user_template:
         raise AnalysisError(
@@ -142,25 +143,41 @@ async def invoke_copilot_cli(prompt: str) -> str:
             "copilot binary not found. Install via: gh extension install github/gh-copilot"
         )
 
+    if proc.stdout is None:
+        raise AnalysisError("Copilot process stdout pipe is unavailable")
+    if proc.stderr is None:
+        raise AnalysisError("Copilot process stderr pipe is unavailable")
+
     output_lines: list[str] = []
-    last_log_time = asyncio.get_event_loop().time()
+    loop = asyncio.get_running_loop()
+    last_log_time = loop.time()
     log_interval = 15  # log heartbeat every 15s so user knows it's still running
 
-    # Stream stdout line by line without blocking the event loop
-    assert proc.stdout is not None
-    assert proc.stderr is not None
-    async for raw_line in proc.stdout:
-        line = raw_line.decode(errors="replace").rstrip()
-        output_lines.append(line)
+    # Drain stderr concurrently so its OS pipe buffer never fills and blocks the
+    # subprocess before stdout has closed — which would otherwise deadlock.
+    stderr_future = asyncio.ensure_future(proc.stderr.read())
 
-        # Log a heartbeat periodically so the user can see progress
-        now = asyncio.get_event_loop().time()
-        if now - last_log_time >= log_interval:
-            logger.info(f"  ⏳ Copilot still running... ({len(output_lines)} lines received so far)")
-            last_log_time = now
+    # Stream stdout line by line without blocking the event loop
+    try:
+        async for raw_line in proc.stdout:
+            line = raw_line.decode(errors="replace").rstrip()
+            output_lines.append(line)
+
+            # Log a heartbeat periodically so the user can see progress
+            now = loop.time()
+            if now - last_log_time >= log_interval:
+                logger.info(f"  ⏳ Copilot still running... ({len(output_lines)} lines received so far)")
+                last_log_time = now
+    except asyncio.CancelledError:
+        # Coroutine was cancelled (e.g. Ctrl+C) — kill the child process so it
+        # doesn't linger as an orphan after the Python process exits.
+        logger.warning("Analysis cancelled — terminating Copilot process")
+        proc.kill()
+        await proc.wait()
+        raise
 
     # stdout is fully drained; collect stderr and wait for exit code
-    stderr_bytes = await proc.stderr.read()
+    stderr_bytes = await stderr_future
     stderr_text = stderr_bytes.decode(errors="replace").strip() if stderr_bytes else ""
 
     await proc.wait()

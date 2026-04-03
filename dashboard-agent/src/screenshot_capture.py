@@ -32,13 +32,13 @@ async def verify_browser_connection(cdp_port: int = 9222) -> bool:
         browser = await pw.chromium.connect_over_cdp(f"http://localhost:{cdp_port}")
         logger.info("✓ Browser session is active")
         browser.close = lambda: asyncio.sleep(0)  # Don't close browser
-        await pw.stop()
         return True
     except Exception as e:
         logger.error(f"✗ Browser session not found: {e}")
         logger.error("Please run: python -m src.orchestrator")
-        await pw.stop()
         return False
+    finally:
+        await pw.stop()
 
 
 async def capture_full_page(
@@ -108,11 +108,17 @@ async def capture_full_page(
     vp_width = original_vp["width"]
 
     # Set viewport tall enough to show all content
-    await page.set_viewport_size({"width": vp_width, "height": scroll_height + 100})
+    try:
+        await page.set_viewport_size({"width": vp_width, "height": scroll_height + 100})
+    except Exception as e:
+        raise ScreenshotCaptureError(f"Failed to resize viewport: {e}") from e
     await asyncio.sleep(2)  # Give charts time to re-render at new height
 
     full_page_path = output_dir / "000_full_page.png"
-    await page.screenshot(path=str(full_page_path))
+    try:
+        await page.screenshot(path=str(full_page_path))
+    except Exception as e:
+        raise ScreenshotCaptureError(f"Failed to capture full-page screenshot: {e}") from e
     screenshots.append(full_page_path)
     size_kb = full_page_path.stat().st_size // 1024
     logger.info(f"  ✓ Full-page screenshot: {full_page_path.name} ({size_kb}KB, height={scroll_height}px)")
@@ -257,7 +263,10 @@ def _crop_graphs_from_full_page(
     Returns:
         List of paths to the cropped PNG files, in top-to-bottom order.
     """
-    img = Image.open(full_page_path)
+    try:
+        img = Image.open(full_page_path)
+    except Exception as e:
+        raise ScreenshotCaptureError(f"Failed to open full-page image {full_page_path}: {e}") from e
     img_w, img_h = img.size
 
     # Sort top-to-bottom so numbering matches visual order on the page
