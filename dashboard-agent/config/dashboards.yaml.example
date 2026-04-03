@@ -1,0 +1,62 @@
+# Dashboard Registry — Example
+# Copy this file to dashboards.yaml and replace the placeholder URLs with your actual dashboard URLs.
+# NEVER commit dashboards.yaml to version control — it contains internal URLs.
+# Each dashboard can have a single `url` or multiple `urls`.
+
+auth:
+  method: microsoft_sso
+  login_url: "https://login.microsoftonline.com"
+  email: "${DASHBOARD_USER_EMAIL}"
+  password_env: "DASHBOARD_USER_PASSWORD"
+  session_dir: "./.auth_session"
+
+defaults:
+  timeout_seconds: 30
+  screenshot: true
+  viewport:
+    width: 1920
+    height: 1080
+
+dashboards:
+  - id: tableau-dashboard
+    name: "<Dashboard Group Name>"
+    auth_type: email_only
+    urls:
+      - name: "<View Name 1>"
+        url: "https://<tableau-region>.online.tableau.com/#/site/<site-name>/views/<workbook-name>/<view-name>"
+      - name: "<View Name 2>"
+        url: "https://<tableau-region>.online.tableau.com/#/site/<site-name>/views/<workbook-name>/<view-name>"
+
+      # Add more Tableau URLs under this group:
+      # - name: "<Another View>"
+      #   url: "https://<tableau-region>.online.tableau.com/#/site/..."
+
+  - id: atlassian-dashboards
+    name: "Atlassian"
+    auth_type: atlassian
+    urls:
+      - name: "<Page Name>"
+        url: "https://<org>.atlassian.net/wiki/spaces/<space-key>/pages/<page-id>/<page-title>"
+
+  - id: cloudhealth-dashboard
+    name: "CloudHealth"
+    auth_type: cloudhealth
+    url: "https://apps.cloudhealthtech.com/dashboard/<dashboard-id>"
+
+  - id: powerbi-dashboard
+    name: "<Report Group Name>"
+    auth_type: powerbi
+    urls:
+      - name: "<Report Name 1>"
+        url: "https://app.powerbi.com/groups/me/reports/<report-id>/<page-id>?ctid=<tenant-id>&experience=power-bi"
+      - name: "<Report Name 2>"
+        url: "https://app.powerbi.com/groups/me/reports/<report-id>/<page-id>?ctid=<tenant-id>&experience=power-bi"
+      - name: "<SharePoint Workbook Name>"
+        url: "https://<org>.sharepoint.com/:x:/r/sites/<site>/<library>/_layouts/15/Doc.aspx?sourcedoc=<doc-id>&file=<filename>.xlsx"
+
+  - id: cloudzero-dashboard
+    name: "CloudZero"
+    auth_type: cloudzero
+    url: "https://auth.cloudzero.com/u/login/"
+
+  # Add more dashboards below...

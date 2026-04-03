@@ -1,0 +1,11 @@
+# Ignore all generated reports, screenshots, and graph folders
+*.html
+*.png
+*.md
+screenshots/
+temp/
+test_capture/
+*_graphs/
+
+# Keep the README
+!README.md

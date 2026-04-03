@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudHealth Dashboard Analysis - {{timestamp}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #24292f;
+            background: #f6f8fa;
+            padding: 2rem;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 3rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+        }
+        
+        header {
+            border-bottom: 3px solid #0969da;
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        h1 {
+            color: #0969da;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .meta {
+            color: #57606a;
+            font-size: 0.9rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 0.5rem;
+        }
+        
+        .meta-item {
+            padding: 0.25rem 0;
+        }
+        
+        .meta-label {
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+        
+        h2 {
+            color: #1f2328;
+            font-size: 1.75rem;
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #d0d7de;
+        }
+        
+        h3 {
+            color: #1f2328;
+            font-size: 1.4rem;
+            margin: 1.5rem 0 0.75rem;
+        }
+        
+        h4 {
+            color: #57606a;
+            font-size: 1.1rem;
+            margin: 1rem 0 0.5rem;
+        }
+        
+        p {
+            margin-bottom: 1rem;
+        }
+        
+        ul, ol {
+            margin: 1rem 0 1rem 2rem;
+        }
+        
+        li {
+            margin-bottom: 0.5rem;
+        }
+        
+        code {
+            background: #f6f8fa;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background: #f6f8fa;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        pre code {
+            padding: 0;
+            background: none;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+            border-left: 4px solid;
+        }
+        
+        .alert.critical {
+            background: #ffebe9;
+            border-color: #cf222e;
+        }
+        
+        .alert.warning {
+            background: #fff8c5;
+            border-color: #bf8700;
+        }
+        
+        .alert.info {
+            background: #ddf4ff;
+            border-color: #0969da;
+        }
+        
+        .alert.positive {
+            background: #dafbe1;
+            border-color: #1a7f37;
+        }
+        
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin: 1rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0 2rem;
+            font-size: 0.9rem;
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            margin: 1rem 0 2rem;
+            border-radius: 6px;
+            border: 1px solid #d0d7de;
+        }
+        
+        .table-wrapper table {
+            margin: 0;
+            border: none;
+        }
+        
+        th, td {
+            padding: 0.65rem 0.9rem;
+            text-align: left;
+            border-bottom: 1px solid #d0d7de;
+            vertical-align: top;
+        }
+        
+        th {
+            background: #f6f8fa;
+            font-weight: 600;
+            white-space: nowrap;
+            border-bottom: 2px solid #d0d7de;
+        }
+        
+        /* First column (Graph name) — narrower, monospace */
+        td:first-child {
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.8rem;
+            color: #57606a;
+            white-space: nowrap;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* Graph cell: contains image + filename, vertically centered */
+        .graph-cell {
+            width: 200px;
+            min-width: 160px;
+            max-width: 220px;
+            text-align: center;
+            vertical-align: middle;
+            padding: 0.5rem;
+            background: #f6f8fa;
+            white-space: normal;
+        }
+
+        .graph-thumb {
+            width: 190px;
+            height: auto;
+            display: block;
+            margin: 0 auto 0.4rem;
+            border-radius: 4px;
+            border: 1px solid #d0d7de;
+            cursor: zoom-in;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .graph-thumb:hover {
+            transform: scale(1.04);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+        }
+
+        /* ── Lightbox ──────────────────────────────────────────────── */
+        #lightbox {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.82);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            cursor: zoom-out;
+        }
+        #lightbox.open { display: flex; }
+
+        #lightbox img {
+            max-width: 92vw;
+            max-height: 92vh;
+            border-radius: 8px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+            margin: 0;
+            cursor: default;
+            object-fit: contain;
+        }
+
+        #lightbox-close {
+            position: fixed;
+            top: 1rem;
+            right: 1.4rem;
+            font-size: 2rem;
+            color: #fff;
+            background: none;
+            border: none;
+            cursor: pointer;
+            line-height: 1;
+            opacity: 0.8;
+        }
+        #lightbox-close:hover { opacity: 1; }
+
+        #lightbox-caption {
+            position: fixed;
+            bottom: 1.2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #e6edf3;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.8rem;
+            background: rgba(0,0,0,0.55);
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .graph-filename {
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.7rem;
+            color: #57606a;
+            display: block;
+            word-break: break-all;
+        }
+        
+        /* Observations column — wider, allow wrap */
+        td:last-child {
+            min-width: 220px;
+        }
+        
+        tbody tr:nth-child(even) {
+            background: #f6f8fa;
+        }
+        
+        tbody tr:hover {
+            background: #eaf2fd;
+        }
+        
+        .footer {
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #d0d7de;
+            color: #57606a;
+            font-size: 0.875rem;
+            text-align: center;
+        }
+        
+        .progress-indicator {
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+        
+        .success { color: #1a7f37; }
+        .error { color: #cf222e; }
+        .warning { color: #bf8700; }
+        
+        blockquote {
+            border-left: 4px solid #d0d7de;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            color: #57606a;
+            font-style: italic;
+        }
+        
+        hr {
+            border: none;
+            border-top: 1px solid #d0d7de;
+            margin: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>☁️ CloudHealth Dashboard Analysis</h1>
+            <div class="meta">
+                <div class="meta-item">
+                    <span class="meta-label">Generated:</span>
+                    <span>{{timestamp}}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Dashboard:</span>
+                    <span>{{dashboard_name}}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Screenshots:</span>
+                    <span>{{screenshot_count}}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Source:</span>
+                    <span>Project HotGates Dashboard Agent</span>
+                </div>
+            </div>
+        </header>
+        <main>
+{{content}}
+        </main>
+        <footer class="footer">
+            Generated by dashboard-agent | CloudHealth Report Generator v1.0
+        </footer>
+    </div>
+
+    <!-- Lightbox overlay -->
+    <div id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged graph">
+        <button id="lightbox-close" aria-label="Close">&times;</button>
+        <img id="lightbox-img" src="" alt="">
+        <div id="lightbox-caption"></div>
+    </div>
+
+    <script>
+        (function () {
+            const lb      = document.getElementById('lightbox');
+            const lbImg   = document.getElementById('lightbox-img');
+            const lbCap   = document.getElementById('lightbox-caption');
+            const lbClose = document.getElementById('lightbox-close');
+
+            function open(src, caption) {
+                lbImg.src = src;
+                lbImg.alt = caption;
+                lbCap.textContent = caption;
+                lb.classList.add('open');
+                document.body.style.overflow = 'hidden';
+            }
+
+            function close() {
+                lb.classList.remove('open');
+                lbImg.src = '';
+                document.body.style.overflow = '';
+            }
+
+            // Delegate click on any .graph-thumb
+            document.addEventListener('click', function (e) {
+                const thumb = e.target.closest('.graph-thumb');
+                if (thumb) {
+                    e.preventDefault();
+                    const caption = thumb.nextElementSibling
+                        ? thumb.nextElementSibling.textContent.trim()
+                        : thumb.alt || '';
+                    open(thumb.src, caption);
+                }
+            });
+
+            // Close on overlay click, close button, or Escape key
+            lb.addEventListener('click', function (e) {
+                if (e.target === lb) close();
+            });
+            lbClose.addEventListener('click', close);
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && lb.classList.contains('open')) close();
+            });
+
+            // Prevent propagation from the image itself so clicking the image
+            // does not re-trigger the overlay close handler.
+            lbImg.addEventListener('click', function (e) { e.stopPropagation(); });
+        })();
+    </script>
+</body>
+</html>

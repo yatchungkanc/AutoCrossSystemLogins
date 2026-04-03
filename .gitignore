@@ -1,0 +1,32 @@
+# Credentials
+.env
+dashboard-agent/config/dashboards.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+dist/
+build/
+
+# Playwright browser session
+dashboard-agent/.auth_session/
+.playwright-mcp/
+
+# Dashboard agent — generated output
+dashboard-agent/output/temp/
+dashboard-agent/output/test_capture/
+dashboard-agent/output/*_graphs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
