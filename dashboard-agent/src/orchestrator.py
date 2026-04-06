@@ -25,19 +25,49 @@ SETUP_MARKER = SESSION_DIR / ".setup_complete"
 CDP_PORT = 9222  # Fixed port for MCP browser tools
 
 
-def load_dashboards() -> list[dict]:
-    """Flatten dashboards config into a list of {name, url, auth_type} dicts.
-    Supports both single `url` and multiple `urls` per entry."""
+def load_dashboards(filters: list[str] | None = None) -> list[dict]:
+    """Flatten dashboards config into a list of {id, name, url, auth_type} dicts.
+    Supports both single `url` and multiple `urls` per entry.
+
+    If *filters* is provided, only dashboard groups whose ``id`` or ``name``
+    contains any of the filter strings (case-insensitive) are included.
+    """
     raw = yaml.safe_load(CONFIG_PATH.read_text())
     pages = []
     for db in raw.get("dashboards", []):
         auth_type = db.get("auth_type", "sso")
+        group_id = db.get("id", "")
+        group_name = db.get("name", "")
+        if filters:
+            lower_filters = [f.lower() for f in filters]
+            if not any(
+                token in group_id.lower() or token in group_name.lower()
+                for token in lower_filters
+            ):
+                continue
         if "urls" in db:
             for entry in db["urls"]:
-                pages.append({"name": entry.get("name", db["name"]), "url": entry["url"], "auth_type": auth_type})
+                pages.append({"id": group_id, "name": entry.get("name", group_name), "url": entry["url"], "auth_type": auth_type})
         elif "url" in db:
-            pages.append({"name": db["name"], "url": db["url"], "auth_type": auth_type})
+            pages.append({"id": group_id, "name": group_name, "url": db["url"], "auth_type": auth_type})
     return pages
+
+
+def list_dashboard_groups() -> None:
+    """Print available dashboard groups (id, name, tab count) to stdout."""
+    raw = yaml.safe_load(CONFIG_PATH.read_text())
+    groups = raw.get("dashboards", [])
+    if not groups:
+        print("No dashboard groups configured.")
+        return
+    id_width = max(len(g.get("id", "")) for g in groups)
+    print(f"{'ID':<{id_width}}  {'NAME':<30}  TABS")
+    print("-" * (id_width + 38))
+    for g in groups:
+        gid = g.get("id", "")
+        name = g.get("name", "")
+        tab_count = len(g["urls"]) if "urls" in g else (1 if "url" in g else 0)
+        print(f"{gid:<{id_width}}  {name:<30}  {tab_count}")
 
 
 def find_chromium() -> str:
@@ -201,9 +231,9 @@ async def _dispatch_auth(
     return await execute_auth_strategy(auth_type, page, context, creds)
 
 
-async def run(chrome: str):
+async def run(chrome: str, filters: list[str] | None = None):
     creds = load_credentials()
-    dashboards = load_dashboards()
+    dashboards = load_dashboards(filters)
 
     port = CDP_PORT  # Changed from: get_free_port()
     logger.info(f"Launching browser on debug port {port}...")
@@ -294,12 +324,12 @@ async def run(chrome: str):
         await pw.stop()
 
 
-def main():
+def main(filters: list[str] | None = None):
     chrome = find_chromium()  # resolve before asyncio.run() — sync_playwright can't run inside an event loop
     if is_first_run():
         asyncio.run(run_setup(chrome))
     else:
-        asyncio.run(run(chrome))
+        asyncio.run(run(chrome, filters))
 
 
 if __name__ == "__main__":
