@@ -103,3 +103,57 @@ async def login_powerbi(page: Page, username: str, password: str) -> bool:
 
     logger.info(f"  → Power BI login flow ended on: {page.url}")
     return True
+
+
+async def login_smartsheet(page: Page, email: str, sso_username: str, sso_password: str) -> bool:
+    """Login to Smartsheet: email entry followed by Microsoft SSO."""
+    logger.info("  → Navigating to Smartsheet...")
+    await page.goto("https://app.smartsheet.com/")
+    await page.wait_for_load_state("load")
+
+    # Already logged in if landed on an app page (not a login/auth page)
+    if (
+        "app.smartsheet.com" in page.url
+        and "login" not in page.url.lower()
+        and "microsoftonline.com" not in page.url
+    ):
+        logger.info("  → Already logged into Smartsheet, skipping.")
+        return True
+
+    # If redirected to Microsoft login, go straight to SSO
+    if "microsoftonline.com" in page.url:
+        logger.info("  → On Microsoft login page, authenticating...")
+        await authenticate_sso(page, sso_username, sso_password)
+        await page.wait_for_load_state("load")
+        logger.info(f"  → Login flow ended on: {page.url}")
+        return True
+
+    # Handle Smartsheet email entry form
+    email_field = page.locator("#loginEmail")
+    try:
+        await email_field.wait_for(timeout=10000)
+        logger.info("  → Entering Smartsheet email...")
+        await email_field.fill(email)
+
+        submitted = False
+        for label in ("Sign In", "Sign in", "Next", "Continue", "Log In"):
+            btn = page.get_by_role("button", name=label)
+            try:
+                if await btn.first.is_visible(timeout=1200):
+                    await btn.first.click()
+                    submitted = True
+                    break
+            except Exception:
+                continue
+
+        if not submitted:
+            await email_field.first.press("Enter")
+
+        await page.wait_for_load_state("load")
+        await authenticate_sso(page, sso_username, sso_password)
+    except Exception:
+        logger.info("  → Already logged into Smartsheet, skipping.")
+
+    await page.wait_for_load_state("load")
+    logger.info(f"  → Login flow ended on: {page.url}")
+    return True

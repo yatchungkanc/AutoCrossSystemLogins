@@ -4,7 +4,7 @@ from playwright.async_api import BrowserContext, Page
 
 from .config import AuthStrategySpec
 from .email_sso_services import login_atlassian, login_cloudhealth, login_cloudzero
-from .ms_sso_services import login_aipro, login_powerbi, login_sso, login_tableau
+from .ms_sso_services import login_aipro, login_powerbi, login_sso, login_tableau, login_smartsheet
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,11 @@ AUTH_STRATEGIES: dict[str, AuthStrategySpec] = {
         func=login_powerbi,
         requires_page=True,
         credentials=("username", "password"),
+    ),
+    "smartsheet": AuthStrategySpec(
+        func=login_smartsheet,
+        requires_page=True,
+        credentials=("email", "username", "password"),
     ),
     "cloudhealth": AuthStrategySpec(
         func=login_cloudhealth,

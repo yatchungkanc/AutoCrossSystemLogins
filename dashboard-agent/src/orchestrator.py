@@ -234,7 +234,7 @@ async def run(chrome: str):
         auth_results: dict[str, bool] = {}
 
         # Page-based strategies first (establish the Microsoft SSO session)
-        for auth_type in [t for t in ("email_only", "sso", "aipro", "powerbi") if t in required_auth]:
+        for auth_type in [t for t in ("email_only", "sso", "aipro", "powerbi", "smartsheet") if t in required_auth]:
             logger.info(f"[1/3] Authenticating: {auth_type}...")
             auth_results[auth_type] = await _dispatch_auth(auth_type, page, context, creds)
             logger.info(f"[1/3] {auth_type}: {'ok' if auth_results[auth_type] else 'FAILED'}.")
