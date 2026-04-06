@@ -99,8 +99,9 @@ After setup:
 
 ```bash
 source .venv/bin/activate
-python run.py               # open all dashboards
-python run.py cloudhealth   # generate CloudHealth report
+python run.py                          # open all dashboards
+python run.py --list                   # list available dashboard groups
+python run.py cloudhealth-report       # generate CloudHealth report
 ```
 
 ### Manual installation
@@ -168,8 +169,10 @@ python run.py
 
 ```bash
 source .venv/bin/activate
-python run.py               # open all dashboards
-python run.py cloudhealth   # generate CloudHealth report
+python run.py                                # open all dashboards
+python run.py --list                         # list available dashboard groups
+python run.py <id-or-name> [<id-or-name>...] # open matching dashboard groups only
+python run.py cloudhealth-report             # generate CloudHealth report
 ```
 
 The agent will:
@@ -212,10 +215,10 @@ The CloudHealth report generator automatically captures dashboard screenshots an
 python run.py
 
 # 2. Generate the CloudHealth report (fully automated)
-python run.py cloudhealth
+python run.py cloudhealth-report
 
 # Optional: focus on specific areas (comma-separated)
-python run.py cloudhealth "cost by service, anomaly detection"
+python run.py cloudhealth-report "cost by service, anomaly detection"
 ```
 
 The analysis runs automatically using `copilot -p` in non-interactive mode. No manual intervention required!
@@ -231,8 +234,8 @@ The report generator is split into four modules for maintainability and testabil
 
 2. **`analysis.py`**: Copilot CLI integration and prompt construction
    - Loads prompts from `config/prompts.yaml`
-   - Invokes `copilot -p` in non-interactive mode
-   - Handles timeouts and fallback instructions
+   - Invokes `copilot -p --allow-all-tools` and streams output until the process exits (no hard timeout)
+   - Strips Copilot tool-activity preamble before the analysis markdown begins
 
 3. **`report_generator.py`**: HTML report generation
    - Markdown to HTML conversion
@@ -256,9 +259,10 @@ The report generator is split into four modules for maintainability and testabil
    - Scrolls to bottom repeatedly until content height stabilizes
    - Captures all dynamically loaded charts and widgets
    - Systematic capture from top to bottom with 20% overlap
-3. **Analyze**: Invoke Copilot CLI with built prompt (120s timeout)
-   - **Fails fast** if Copilot CLI unavailable or times out
-   - No silent fallbacks - errors are fatal and clearly reported
+3. **Analyze**: Invoke Copilot CLI with built prompt (streams until process exits — no hard timeout)
+   - Uses `--allow-all-tools` so Copilot can read the screenshot files directly
+   - **Fails fast** if Copilot CLI is unavailable or exits with a non-zero code
+   - No silent fallbacks — errors are fatal and clearly reported
 4. **Generate Report**: Convert analysis to HTML using template
 5. **Cleanup**: Remove temporary screenshot directory
 6. **Display**: Open report in new browser tab
@@ -355,6 +359,7 @@ Both formats can be mixed freely. Each URL becomes its own browser tab.
 | JIRA / Confluence | Atlassian email → SSO or API token | JIRA dashboards, Confluence pages |
 | AI Pro | Azure AD → Microsoft SSO | AI Pro dashboards |
 | Power BI | Microsoft SSO | Power BI reports |
+| Smartsheet | Email entry → Microsoft SSO | Smartsheet dashboards and reports |
 | CloudHealth | Email submit → SSO redirect | CloudHealth cost dashboards |
 | CloudZero | Email submit → SSO redirect | CloudZero cost dashboards |
 
@@ -371,6 +376,7 @@ Defined in `src/auth/` (split across modules — see `src/auth/README.md`):
 | `login_sso` | Direct Microsoft SSO (username + password) |
 | `login_aipro` | AI Pro → Azure AD button → Microsoft SSO → dismiss welcome |
 | `login_powerbi` | Power BI → Microsoft SSO |
+| `login_smartsheet` | Smartsheet email entry → Microsoft SSO; skips if already logged in or already on Microsoft login page |
 | `login_cloudhealth` | CloudHealth email submit → waits for full Broadcom SSO → Microsoft → CloudHealth redirect chain (up to 90 s) before closing tab |
 | `login_cloudzero` | CloudZero email submit → waits for SSO redirect chain to complete |
 
@@ -427,6 +433,7 @@ Tests are in `tests/` and cover auth registry dispatch and login strategy logic.
 | `playwright` | Browser automation (Chromium via CDP) |
 | `python-dotenv` | Load credentials from `.env` |
 | `pyyaml` | Parse `dashboards.yaml` |
+| `Pillow` | Screenshot stitching and image processing |
 
 ## Design Decisions
 

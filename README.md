@@ -58,7 +58,7 @@ dashboards:
 Each entry requires:
 - `id` — unique identifier (used internally)
 - `name` — display name shown in logs
-- `auth_type` — one of `email_only`, `atlassian`, `cloudhealth`, `powerbi`, `cloudzero`
+- `auth_type` — one of `email_only`, `sso`, `aipro`, `powerbi`, `smartsheet`, `cloudhealth`, `cloudzero`, `atlassian`
 - `url` (single) or `urls` (list of `name`/`url` pairs)
 
 `dashboards.yaml` is gitignored — it is never committed. `dashboards.yaml.example` is the committed template.
@@ -85,13 +85,26 @@ python run.py
 source .venv/bin/activate
 
 python run.py                                      # Open all dashboards
-python run.py cloudhealth                          # Generate CloudHealth cost report
-python run.py cloudhealth "cost by service"        # Report with a focus area
+python run.py --list                               # List available dashboard groups
+python run.py <id-or-name> [<id-or-name> ...]      # Open matching dashboard groups only
+python run.py cloudhealth-report                   # Generate CloudHealth cost report
+python run.py cloudhealth-report "cost by service" # Report with a focus area
 ```
 
 ### Open all dashboards
 
 Launches a maximized Chromium window, authenticates (or skips if session is still valid), and opens every configured dashboard as a tab. The script exits and the browser stays open.
+
+### Open specific dashboards
+
+Pass one or more group IDs or name fragments to open only matching dashboards:
+
+```bash
+python run.py atlassian                  # open the Atlassian group
+python run.py ops-metrics finance        # open two groups by ID
+```
+
+Run `python run.py --list` to see all available group IDs and names.
 
 ### CloudHealth report
 
@@ -111,7 +124,7 @@ The report workflow:
 
 - Python 3.11+
 - Chromium — installed automatically by `setup.sh` via `playwright install chromium`
-- GitHub Copilot CLI — required only for `python run.py cloudhealth`
+- GitHub Copilot CLI — required only for `python run.py cloudhealth-report`
 
 ## Project Layout
 

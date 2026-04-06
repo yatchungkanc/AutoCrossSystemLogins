@@ -17,7 +17,7 @@ dashboard-agent/
     auth/
       config.py             # Auth config dataclasses (EmailLoginConfig, AuthStrategySpec)
       common.py             # Shared login helpers (Microsoft SSO flow, email flow)
-      ms_sso_services.py    # MS SSO-based strategies: Tableau, SSO, AI Pro, PowerBI
+      ms_sso_services.py    # MS SSO-based strategies: Tableau, SSO, AI Pro, PowerBI, Smartsheet
       email_sso_services.py # Email-submit strategies: CloudHealth, CloudZero, Atlassian
       registry.py           # AUTH_STRATEGIES registry and execute_auth_strategy()
       strategies.py         # Compatibility facade — prefer importing from auth directly
@@ -52,7 +52,8 @@ Tests live in `tests/` and use `pytest`. Run with `pytest` from `dashboard-agent
 - **Logging over print**: `logging.getLogger(__name__)`, level INFO
 - **Auth strategies** in `strategies.py` receive a `Page` and `Credentials`; they return when the target page is loaded — do not assert URLs or assume redirect paths
 - **`dashboards.yaml`** supports both `url` (single) and `urls` (list) per dashboard entry — new entries must handle both shapes
-- **CloudHealth report workflow**: capture screenshots → invoke Copilot analysis → generate HTML → display in browser
+- **`smartsheet` auth type** uses `(email, username, password)` credentials (same fields as `email_only`); `TABLEAU_EMAIL` supplies the email
+- **CloudHealth report workflow**: capture screenshots → invoke `copilot -p --allow-all-tools` (streams until process exits, no hard timeout) → strip tool-activity preamble → generate HTML → display in browser
 
 ## Critical Pitfalls
 
