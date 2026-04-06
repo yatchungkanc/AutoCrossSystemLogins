@@ -320,6 +320,50 @@ The generated HTML report includes:
 
 Report template is fully customizable via `config/report_template.html`.
 
+### Example
+
+#### Input — CloudHealth dashboard screenshot
+
+![CloudHealth dashboard screenshot](../docs/images/cloudhealth_dashboard_screenshot.png)
+
+The agent scrolls the CloudHealth page until the full content height stabilises, then captures a systematic series of overlapping tile screenshots. The result is a composite that covers every chart panel visible in the session — typically ~19 panels including:
+
+- **PPE Cost History** by accounts and by service items (monthly bar charts, Apr 2025 – Apr 2026 MTD)
+- **Works Registry Cost** by accounts, by AssetTag subproduct, and by service items
+- **Source Domain Cost** by months/accounts and by service items (showing RDS-driven growth)
+- **Sources & OB II** weekly cost trend by account and by service, plus storage-only breakdown
+- **Consumption** (dataplatform) daily cost by account and by service items
+- **Storage detail** charts — Opsbank2 nonprod and prod weekly storage history, EFS monthly trend, Works Registry S3 backup cost
+
+Each panel is also saved as an individually-cropped PNG alongside the composite.
+
+#### Output — generated HTML report
+
+![Generated CloudHealth report](../docs/images/cloudhealth_report_example.png)
+
+The Copilot CLI reads the screenshots and produces a structured markdown analysis that is converted into a styled HTML page:
+
+**Cost by Accounts section** — a table where each row represents one AWS account and time range. Columns are:
+
+| Graph | Account and Time Range | Items | Cost | Observations |
+|---|---|---|---|---|
+| thumbnail | e.g. aws-ppe-nonprod : 798283861836 / Apr 2025 – Apr 2026 MTD | EC2-Compute, OpenSearch, SageMaker | ~$5,500–$7,800/mo | `CRITICAL` Mar 2026 spike to ~$7,800 — largest contributor to PPE overage |
+
+**Cost by Service section** — a table grouping accounts by domain (PPE, Works Registry, Source Domain, Opsbank2, Consumption), listing the top 5 cost drivers with dollar ranges and trend observations.
+
+**Executive Summary section** — a findings table with ~10 rows covering:
+- Total portfolio monthly run rate (e.g. ~$64K–$72K/mo)
+- Top cost driver identification with percentage of total spend
+- Per-domain anomaly and trend findings with severity ratings
+- 6-month trend summary
+
+Followed by three tiers of prioritized recommendations:
+- **Immediate (this week)** — investigate active anomalies, validate recent cost reductions
+- **Short-term (next 30 days)** — EFS lifecycle policy audits, RDS storage caps, S3 backup tiering
+- **Medium-term (next quarter)** — capacity reviews, budget governance, recurring spike instrumentation
+
+All graph thumbnails in the report are clickable and open a full-size lightbox overlay. The report is self-contained — graph images are embedded via relative paths in the `output/<timestamp>_graphs/` folder next to the HTML file.
+
 ## Configuration
 
 ### dashboards.yaml

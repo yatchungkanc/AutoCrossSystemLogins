@@ -120,6 +120,22 @@ The report workflow:
 3. Generates a timestamped HTML report in `dashboard-agent/output/`
 4. Opens the report in a new browser tab
 
+#### Example
+
+**Input — dashboard screenshot**: The agent captures the full CloudHealth page as a series of overlapping tile screenshots, producing a composite that covers all chart panels in the session — typically ~19 stacked bar and line charts showing cost history by accounts and by service items across multiple AWS environments (PPE, Works Registry, Source Domain, OpsBank2, Consumption).
+
+![CloudHealth dashboard screenshot](docs/images/cloudhealth_dashboard_screenshot.png)
+
+**Output — generated report**: A timestamped HTML page (`cloudhealth_report_<timestamp>.html`) with three structured sections:
+
+![Generated CloudHealth report](docs/images/cloudhealth_report_example.png)
+
+- **Cost by Accounts** — per-account cost table showing graph thumbnail, account ID, time range, top services, monthly/weekly cost range, and an observations cell with color-coded severity badges (`CRITICAL` / `WARNING` / `POSITIVE`).
+- **Cost by Service** — per-domain breakdown listing the top cost drivers, dollar ranges, and trend observations (e.g., "EC2 - Compute: ~$2,500–$3,500/mo (largest, ~30% of total)").
+- **Executive Summary** — findings table with ~10 rows covering total run rate, top cost drivers, anomalies, and 6-month trends, followed by three tiers of prioritized action items: *Immediate (this week)*, *Short-term (next 30 days)*, and *Medium-term (next quarter)*.
+
+All graph thumbnails are clickable — clicking opens a full-size lightbox overlay.
+
 ## Prerequisites
 
 - Python 3.11+
