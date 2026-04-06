@@ -38,9 +38,10 @@ dashboard-agent/
 ./setup.sh                  # First time only (creates .venv, installs deps, copies .env)
 source .venv/bin/activate
 
-python run.py               # Launch browser with all dashboards
-python run.py cloudhealth   # Generate CloudHealth report
-python run.py cloudhealth "cost by service"  # With focus area
+python run.py                                      # Launch browser with all dashboards
+python run.py --list                               # List available dashboard groups
+python run.py cloudhealth-report                   # Generate CloudHealth report
+python run.py cloudhealth-report "cost by service" # With focus area
 ```
 
 Tests live in `tests/` and use `pytest`. Run with `pytest` from `dashboard-agent/`. For async Playwright tests, use `pytest-asyncio`.
@@ -50,7 +51,7 @@ Tests live in `tests/` and use `pytest`. Run with `pytest` from `dashboard-agent
 - **Python 3.11+**, async/await throughout (`async_playwright`)
 - **Type hints required**: use dataclasses, `list[T]`, `Path` — no bare `dict`
 - **Logging over print**: `logging.getLogger(__name__)`, level INFO
-- **Auth strategies** in `strategies.py` receive a `Page` and `Credentials`; they return when the target page is loaded — do not assert URLs or assume redirect paths
+- **Auth strategies** are registered in `auth/registry.py` and dispatched via `execute_auth_strategy()`; each strategy receives a `Page` or `BrowserContext` and returns `bool` when the target page is loaded — do not assert URLs or assume redirect paths
 - **`dashboards.yaml`** supports both `url` (single) and `urls` (list) per dashboard entry — new entries must handle both shapes
 - **`smartsheet` auth type** uses `(email, username, password)` credentials (same fields as `email_only`); `TABLEAU_EMAIL` supplies the email
 - **CloudHealth report workflow**: capture screenshots → invoke `copilot -p --allow-all-tools` (streams until process exits, no hard timeout) → strip tool-activity preamble → generate HTML → display in browser
