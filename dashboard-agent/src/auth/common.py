@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 from playwright.async_api import BrowserContext, Page
 
@@ -121,8 +122,7 @@ async def run_email_login_strategy(context: BrowserContext, email: str, config: 
                     lambda url: config.redirect_complete(url),
                     timeout=config.redirect_timeout_ms,
                 )
-                await page.wait_for_load_state("load")
-                await asyncio.sleep(1)
+                await _wait_for_redirect_to_settle(page, config)
             except Exception:
                 logger.warning(
                     f"  → {config.provider_name}: redirect did not complete within "
@@ -137,3 +137,29 @@ async def run_email_login_strategy(context: BrowserContext, email: str, config: 
             return False
     finally:
         await page.close()
+
+
+async def _wait_for_redirect_to_settle(page: Page, config: EmailLoginConfig) -> None:
+    """Require the post-login URL to stay complete long enough to avoid early handoff."""
+    stable_since = time.monotonic() if config.redirect_complete(page.url) else None
+    deadline = time.monotonic() + max(config.post_redirect_stable_ms / 1000 * 3, 10)
+
+    while time.monotonic() < deadline:
+        current_url = page.url
+        if config.redirect_complete(current_url):
+            if stable_since is None:
+                stable_since = time.monotonic()
+
+            if (time.monotonic() - stable_since) * 1000 >= config.post_redirect_stable_ms:
+                await page.wait_for_load_state("load")
+                await asyncio.sleep(1)
+                return
+        else:
+            stable_since = None
+
+        await asyncio.sleep(0.5)
+
+    logger.warning(
+        f"  → {config.provider_name}: post-login URL did not stay stable for "
+        f"{config.post_redirect_stable_ms // 1000}s. Current URL: {page.url}"
+    )

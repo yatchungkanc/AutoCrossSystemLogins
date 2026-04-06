@@ -14,6 +14,7 @@ class EmailLoginConfig:
     initial_wait_s: int = 2
     email_submit_pause_s: int = 1
     redirect_timeout_ms: int = 30000
+    post_redirect_stable_ms: int = 2000
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ CLOUDHEALTH_LOGIN = EmailLoginConfig(
     already_logged_in=lambda url: "apps.cloudhealthtech.com" in url and "/login" not in url,
     redirect_complete=lambda url: "apps.cloudhealthtech.com" in url and "/login" not in url,
     redirect_timeout_ms=90000,  # Broadcom SSO → Microsoft → back can take >30 s
+    post_redirect_stable_ms=8000,  # Allow the CloudHealth -> Broadcom -> CloudHealth cycle to settle.
 )
 
 CLOUDZERO_LOGIN = EmailLoginConfig(
