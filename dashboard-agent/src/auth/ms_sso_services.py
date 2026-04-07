@@ -128,7 +128,21 @@ async def login_smartsheet(page: Page, email: str, sso_username: str, sso_passwo
         logger.info(f"  → Login flow ended on: {page.url}")
         return True
 
-    # Handle Smartsheet email entry form
+    # Case 2: SAML/company-account button already shown — no email entry needed
+    saml_btn = page.locator('[data-client-id="login-SAML-btn"]')
+    try:
+        await saml_btn.wait_for(timeout=5000)
+        logger.info("  → Clicking 'Sign in with company account' button...")
+        await saml_btn.click()
+        await page.wait_for_load_state("load")
+        await authenticate_sso(page, sso_username, sso_password)
+        await page.wait_for_load_state("load")
+        logger.info(f"  → Login flow ended on: {page.url}")
+        return True
+    except Exception:
+        pass  # SAML button not present; fall through to email entry
+
+    # Case 1: email entry form
     email_field = page.locator("#loginEmail")
     try:
         await email_field.wait_for(timeout=10000)
