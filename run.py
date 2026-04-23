@@ -21,11 +21,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "dashboard-agent"))
 if __name__ == "__main__":
     args = sys.argv[1:]
 
-    if args and args[0] == "cloudhealth-report":
-        from src.cloudhealth_report import main as cloudhealth_main
-        focus_area = args[1] if len(args) > 1 else ""
-        asyncio.run(cloudhealth_main(focus_area))
-    elif args and args[0] == "--list":
+    # CloudHealth functionality has been disabled
+    # if args and args[0] == "cloudhealth-report":
+    #     from src.cloudhealth_report import main as cloudhealth_main
+    #     focus_area = args[1] if len(args) > 1 else ""
+    #     asyncio.run(cloudhealth_main(focus_area))
+    if args and args[0] == "--list":
         from src.orchestrator import list_dashboard_groups
         list_dashboard_groups()
     else:

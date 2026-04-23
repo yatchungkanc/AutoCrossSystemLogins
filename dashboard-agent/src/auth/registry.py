@@ -35,12 +35,13 @@ AUTH_STRATEGIES: dict[str, AuthStrategySpec] = {
         requires_page=True,
         credentials=("email", "username", "password"),
     ),
-    "cloudhealth": AuthStrategySpec(
-        func=login_cloudhealth,
-        requires_page=False,
-        credentials=("cloudhealth_email",),
-        skip_if_missing="  → Skipping cloudhealth: no credentials configured.",
-    ),
+    # CloudHealth has been disabled
+    # "cloudhealth": AuthStrategySpec(
+    #     func=login_cloudhealth,
+    #     requires_page=False,
+    #     credentials=("cloudhealth_email",),
+    #     skip_if_missing="  → Skipping cloudhealth: no credentials configured.",
+    # ),
     "cloudzero": AuthStrategySpec(
         func=login_cloudzero,
         requires_page=False,
