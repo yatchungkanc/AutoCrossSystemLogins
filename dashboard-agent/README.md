@@ -49,7 +49,7 @@ projectHotGates/
     ├── .env.example                   # Template
     ├── config/
     │   ├── dashboards.yaml            # Dashboard registry (add URLs here)
-    │   ├── prompts.yaml               # CloudHealth analysis prompts
+    │   ├── prompts.yaml               # Generic graph analysis prompts
     │   └── report_template.html       # HTML report template
     ├── src/
     │   ├── auth/
@@ -62,7 +62,8 @@ projectHotGates/
     │   ├── config/
     │   │   └── loader.py              # Loads credentials from .env
     │   ├── orchestrator.py            # Main browser session manager
-    │   ├── cloudhealth_report.py      # Report generation agent (orchestrator)
+    │   ├── graph_report.py            # Generic graph report agent
+    │   ├── cloudhealth_report.py      # Legacy CloudHealth report orchestrator
     │   ├── screenshot_capture.py      # Screenshot capture module
     │   ├── analysis.py                # Copilot CLI integration module
     │   └── report_generator.py        # HTML report generation module
@@ -101,7 +102,8 @@ After setup:
 source .venv/bin/activate
 python run.py                          # open all dashboards
 python run.py --list                   # list available dashboard groups
-python run.py cloudhealth-report       # generate CloudHealth report
+python run.py graph-report --graph "Name=/path/to/graph.png"
+python run.py graph-report --graph "Name=https://dashboard.example/report"
 ```
 
 ### Manual installation
@@ -172,7 +174,8 @@ source .venv/bin/activate
 python run.py                                # open all dashboards
 python run.py --list                         # list available dashboard groups
 python run.py <id-or-name> [<id-or-name>...] # open matching dashboard groups only
-python run.py cloudhealth-report             # generate CloudHealth report
+python run.py graph-report --graph "Name=/path/to/graph.png"
+python run.py graph-report --graph "Name=https://dashboard.example/report"
 ```
 
 The agent will:
@@ -202,167 +205,82 @@ Connected.
 [3/3] All 8 dashboards open. Script exiting — browser will stay open.
 ```
 
-## CloudHealth Report Generator
+## Graph Report Generator
 
-The CloudHealth report generator automatically captures dashboard screenshots and uses the Copilot CLI to analyze them in non-interactive mode, generating a comprehensive HTML report with cost optimization insights.
-
-**Architecture**: Modular agent-based design with configuration-driven prompts and templates.
+The graph report generator analyzes one or more caller-provided graph image files or dashboard URLs with the Copilot CLI and produces a generic HTML report. Local image inputs go straight to analysis; URL inputs are opened in the existing Playwright browser session and captured into individual graph images before analysis.
 
 ### Usage
 
 ```bash
-# 1. Ensure orchestrator is running with browser session
-python run.py
-
-# 2. Generate the CloudHealth report (fully automated)
-python run.py cloudhealth-report
-
-# Optional: focus on specific areas (comma-separated)
-python run.py cloudhealth-report "cost by service, anomaly detection"
+python run.py graph-report \
+  --graph "AWS Account Vulnerability Trends=/tmp/trends.png" \
+  --graph "Budget Forecast=https://app.powerbi.com/groups/me/reports/..." \
+  --focus "anomalies, trend changes" \
+  --title "Weekly Graph Review"
 ```
 
-The analysis runs automatically using `copilot -p` in non-interactive mode. No manual intervention required!
+Each `--graph` value must use `Name=/path/to/image-or-url`. The graph name is what appears in the report and in the analysis tables; filenames are treated as internal implementation details. URL capture requires a running browser session from `python run.py`.
 
 ### Architecture & Modules
 
-The report generator is split into four modules for maintainability and testability:
+The report generator is split into reusable modules:
 
-1. **`screenshot_capture.py`**: Browser connection and full-page screenshot capture
-   - Connects to CDP port 9222
-   - Scrolling capture with configurable overlap
-   - Temporary file management
+1. **`graph_report.py`**: Generic CLI orchestration, URL capture, and report workflow
+2. **`graph_inputs.py`**: Named graph input parsing and validation
+3. **`analysis.py`**: Copilot CLI integration and prompt construction
+4. **`screenshot_capture.py`**: URL page capture and individual graph cropping
+5. **`report_generator.py`**: HTML generation, graph image copying, thumbnail/lightbox rendering
 
-2. **`analysis.py`**: Copilot CLI integration and prompt construction
-   - Loads prompts from `config/prompts.yaml`
-   - Invokes `copilot -p --allow-all-tools` and streams output until the process exits (no hard timeout)
-   - Strips Copilot tool-activity preamble before the analysis markdown begins
-
-3. **`report_generator.py`**: HTML report generation
-   - Markdown to HTML conversion
-   - Template substitution from `config/report_template.html`
-   - Severity indicator styling
-
-4. **`cloudhealth_report.py`**: Main agent orchestrator
-   - Progress tracking and logging
-   - Error recovery with fallbacks
-   - Automatic cleanup of temporary files
-
-**Configuration files** (externalized from code):
-- `config/prompts.yaml`: Analysis prompts and focus instructions
+**Configuration files**:
+- `config/prompts.yaml`: Generic graph analysis prompts and focus instructions
 - `config/report_template.html`: HTML template with Jinja2-style placeholders
-- `config/dashboards.yaml`: Dashboard URLs and authentication
 
 ### Workflow
 
-1. **Verify Browser**: Check CDP connection to orchestrator session
-2. **Capture Screenshots**: Full-page scrolling capture with lazy-load triggering
-   - Scrolls to bottom repeatedly until content height stabilizes
-   - Captures all dynamically loaded charts and widgets
-   - Systematic capture from top to bottom with 20% overlap
-3. **Analyze**: Invoke Copilot CLI with built prompt (streams until process exits — no hard timeout)
-   - Uses `--allow-all-tools` so Copilot can read the screenshot files directly
-   - **Fails fast** if Copilot CLI is unavailable or exits with a non-zero code
-   - No silent fallbacks — errors are fatal and clearly reported
-4. **Generate Report**: Convert analysis to HTML using template
-5. **Cleanup**: Remove temporary screenshot directory
-6. **Display**: Open report in new browser tab
+1. **Validate Inputs**: Require at least one graph, non-empty unique graph names, and either existing local files or HTTP(S) URLs.
+2. **Capture URL Inputs**: Open each URL in the existing CDP browser session and crop visible SVG/canvas graphs into individual images.
+3. **Analyze**: Invoke `copilot -p --allow-all-tools` with graph names and image paths.
+4. **Generate Report**: Convert Copilot markdown to HTML using the report template.
+5. **Copy Graph Assets**: Save graph images beside the report using stable sanitized filenames.
 
-**Fail-fast behavior** — if Copilot CLI is not installed or analysis fails, the script exits with a clear error message. No placeholder reports generated.
-
-### Analysis Guidelines
-
-The report follows the CloudHealth interpretation prompt guidelines:
-- **Cost by Accounts**: 6-month trend analysis with specific values and percentage changes
-- **Cost by Service**: Top 5 resources, spike identification (>20% increases)
-- **Executive Summary**: Overall spend status, critical alerts, recommendations with estimated savings
+**Fail-fast behavior**: if Copilot CLI is not installed, URL capture cannot connect to the browser, input validation fails, or analysis fails, the command exits with a clear error. No placeholder reports are generated.
 
 ### Prerequisites
 
-**Required:**
-- GitHub Copilot CLI must be installed and in your PATH
-- Orchestrator browser session must be running
+GitHub Copilot CLI must be installed and in your PATH:
 
-Install Copilot CLI:
 ```bash
-# Via GitHub CLI extension
 gh extension install github/gh-copilot
-
-# Or download directly from https://github.com/github/copilot-cli
 ```
 
-**Behavior**: The script will fail with a clear error if Copilot CLI is not available. This is intentional - the tool is designed for automated analysis, not manual workflows.
+For URL inputs, start the browser/auth session first:
+
+```bash
+python run.py
+```
 
 ### Output Structure
 
 ```
 dashboard-agent/
   config/
-    prompts.yaml              # Analysis prompts and focus instructions
+    prompts.yaml              # Generic graph analysis prompts
     report_template.html      # HTML template with styled layout
-    dashboards.yaml           # Dashboard URLs
   output/
-    cloudhealth_report_20260320_143022.html  # Generated reports (persistent)
-    temp/                     # Temporary files (auto-cleaned after successful run)
-      capture_20260320_143022/
-        screenshots_*/        # Screenshots (deleted after report generation)
+    graph_report_20260428_143022.html
+    graph_report_20260428_143022_graphs/
+      001_Budget_Forecast.png
 ```
-
-**Cleanup behavior**: Screenshot temporary directories are automatically removed after successful report generation. Only the final HTML report persists.
 
 ### Report Contents
 
 The generated HTML report includes:
-- **Dashboard metadata**: Title, URL, capture timestamp
-- **Analysis sections**: Cost by Accounts, Cost by Service, Executive Summary
-- **Severity indicators**: Visual badges for critical/warning/info/positive findings
-- **Professional styling**: Responsive layout with syntax highlighting
-- **Markdown formatting**: Headers, lists, code blocks, bold/italic text
+- **Report metadata**: title, generation timestamp, graph count
+- **Graph Analysis**: tables keyed by caller-provided graph names
+- **Executive Summary**: cross-graph patterns, anomalies, data-quality notes, and actions
+- **Clickable thumbnails**: each graph opens in a full-size lightbox overlay
 
-Report template is fully customizable via `config/report_template.html`.
-
-### Example
-
-#### Input — CloudHealth dashboard screenshot
-
-![CloudHealth dashboard screenshot](../docs/images/cloudhealth_dashboard_screenshot.png)
-
-The agent scrolls the CloudHealth page until the full content height stabilises, then captures a systematic series of overlapping tile screenshots. The result is a composite that covers every chart panel visible in the session — typically ~19 panels including:
-
-- **PPE Cost History** by accounts and by service items (monthly bar charts, Apr 2025 – Apr 2026 MTD)
-- **Works Registry Cost** by accounts, by AssetTag subproduct, and by service items
-- **Source Domain Cost** by months/accounts and by service items (showing RDS-driven growth)
-- **Sources & OB II** weekly cost trend by account and by service, plus storage-only breakdown
-- **Consumption** (dataplatform) daily cost by account and by service items
-- **Storage detail** charts — Opsbank2 nonprod and prod weekly storage history, EFS monthly trend, Works Registry S3 backup cost
-
-Each panel is also saved as an individually-cropped PNG alongside the composite.
-
-#### Output — generated HTML report
-
-![Generated CloudHealth report](../docs/images/cloudhealth_report_example.png)
-
-The Copilot CLI reads the screenshots and produces a structured markdown analysis that is converted into a styled HTML page:
-
-**Cost by Accounts section** — a table where each row represents one AWS account and time range. Columns are:
-
-| Graph | Account and Time Range | Items | Cost | Observations |
-|---|---|---|---|---|
-| thumbnail | e.g. aws-ppe-nonprod : 798283861836 / Apr 2025 – Apr 2026 MTD | EC2-Compute, OpenSearch, SageMaker | ~$5,500–$7,800/mo | `CRITICAL` Mar 2026 spike to ~$7,800 — largest contributor to PPE overage |
-
-**Cost by Service section** — a table grouping accounts by domain (PPE, Works Registry, Source Domain, Opsbank2, Consumption), listing the top 5 cost drivers with dollar ranges and trend observations.
-
-**Executive Summary section** — a findings table with ~10 rows covering:
-- Total portfolio monthly run rate (e.g. ~$64K–$72K/mo)
-- Top cost driver identification with percentage of total spend
-- Per-domain anomaly and trend findings with severity ratings
-- 6-month trend summary
-
-Followed by three tiers of prioritized recommendations:
-- **Immediate (this week)** — investigate active anomalies, validate recent cost reductions
-- **Short-term (next 30 days)** — EFS lifecycle policy audits, RDS storage caps, S3 backup tiering
-- **Medium-term (next quarter)** — capacity reviews, budget governance, recurring spike instrumentation
-
-All graph thumbnails in the report are clickable and open a full-size lightbox overlay. The report is self-contained — graph images are embedded via relative paths in the `output/<timestamp>_graphs/` folder next to the HTML file.
+Report styling and wording are customizable via `config/report_template.html` and `config/prompts.yaml`.
 
 ## Configuration
 

@@ -1,7 +1,7 @@
 """Analysis Module
 
-Handles CloudHealth dashboard analysis using GitHub Copilot CLI.
-Constructs prompts from configuration and screenshot metadata.
+Handles graph analysis using GitHub Copilot CLI.
+Constructs prompts from configuration and graph metadata.
 """
 import asyncio
 import logging
@@ -9,6 +9,8 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import yaml
+
+from src.graph_inputs import GraphInput
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +35,8 @@ def load_prompts_config(config_path: Path) -> dict:
 
 def build_analysis_prompt(
     prompts_config: dict,
-    screenshot_paths: list[Path],
-    dashboard_info: dict,
+    graphs: list[GraphInput],
+    report_info: dict,
     focus_areas: list[str] | None = None
 ) -> str:
     """
@@ -42,8 +44,8 @@ def build_analysis_prompt(
     
     Args:
         prompts_config: Loaded prompts.yaml config
-        screenshot_paths: List of screenshot file paths
-        dashboard_info: Dashboard metadata dictionary
+        graphs: Named graph image files to analyze
+        report_info: Report metadata dictionary
         focus_areas: Optional list of focus areas for custom analysis
     
     Returns:
@@ -74,30 +76,25 @@ def build_analysis_prompt(
             "Provide comprehensive analysis of all visible data."
         )
     
-    # Build dashboard_info summary string (matches {dashboard_info} in template)
-    dashboard_info_str = (
-        f"Title: {dashboard_info.get('title', 'CloudHealth Dashboard')}\n"
-        f"URL: {dashboard_info.get('url', 'N/A')}\n"
-        f"Captured: {dashboard_info.get('captured_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}"
+    # Build report_info summary string (matches {report_info} in template)
+    report_info_str = (
+        f"Title: {report_info.get('title', 'Graph Analysis Report')}\n"
+        f"Captured: {report_info.get('captured_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}"
     )
-    
-    screenshot_dir = dashboard_info.get("screenshot_dir", "N/A")
 
-    # List actual filenames so Copilot uses the exact names in the Graph column
-    # (skips the full-page overview so per-graph crops are the focus)
-    graph_files = [p for p in screenshot_paths if p.name != "000_full_page.png"]
-    if not graph_files:
-        graph_files = screenshot_paths  # fallback: include everything
-    filename_list = "\n".join(f"    - {p.name}" for p in graph_files)
+    graph_list = "\n".join(
+        f"    - Graph name: {graph.name}\n"
+        f"      Image path: {graph.path}"
+        for graph in graphs
+    )
 
     # Build complete prompt - template variables match prompts.yaml placeholders
     full_prompt = f"""{system_prompt}
 
 {user_template.format(
-    dashboard_info=dashboard_info_str,
-    screenshot_count=len(screenshot_paths),
-    screenshot_dir=screenshot_dir,
-    screenshot_filenames=filename_list,
+    report_info=report_info_str,
+    graph_count=len(graphs),
+    graph_list=graph_list,
     focus_instruction=focus_instruction,
 )}"""
     
@@ -199,10 +196,10 @@ async def invoke_copilot_cli(prompt: str) -> str:
     return analysis_text
 
 
-async def analyze_cloudhealth_dashboard(
+async def analyze_graphs(
     prompts_config_path: Path,
-    screenshot_paths: list[Path],
-    dashboard_info: dict,
+    graphs: list[GraphInput],
+    report_info: dict,
     focus_areas: list[str] | None = None,
 ) -> str:
     """
@@ -210,8 +207,8 @@ async def analyze_cloudhealth_dashboard(
 
     Args:
         prompts_config_path: Path to prompts.yaml
-        screenshot_paths: List of screenshot paths
-        dashboard_info: Dashboard metadata
+        graphs: Named graph image files to analyze
+        report_info: Report metadata
         focus_areas: Optional custom focus areas
 
     Returns:
@@ -227,8 +224,8 @@ async def analyze_cloudhealth_dashboard(
     # Build prompt
     prompt = build_analysis_prompt(
         prompts_config,
-        screenshot_paths,
-        dashboard_info,
+        graphs,
+        report_info,
         focus_areas
     )
 
@@ -237,3 +234,21 @@ async def analyze_cloudhealth_dashboard(
     # Invoke Copilot CLI asynchronously - waits until process exits naturally
     analysis = await invoke_copilot_cli(prompt)
     return analysis
+
+
+async def analyze_cloudhealth_dashboard(
+    prompts_config_path: Path,
+    screenshot_paths: list[Path],
+    dashboard_info: dict,
+    focus_areas: list[str] | None = None,
+) -> str:
+    """Compatibility wrapper for the old CloudHealth report entrypoint."""
+    graphs = [GraphInput(name=path.name, path=path) for path in screenshot_paths]
+    report_info = {
+        "title": dashboard_info.get("title", "Graph Analysis Report"),
+        "captured_at": dashboard_info.get(
+            "captured_at",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    }
+    return await analyze_graphs(prompts_config_path, graphs, report_info, focus_areas)

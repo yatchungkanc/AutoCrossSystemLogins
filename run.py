@@ -5,8 +5,9 @@ Usage:
     python run.py                                     # Launch browser with all dashboards
     python run.py --list                              # List available dashboard groups
     python run.py <id-or-name> [<id-or-name> ...]     # Launch matching dashboards only
-    python run.py cloudhealth-report                  # Generate CloudHealth report
-    python run.py cloudhealth-report "cost by service, anomaly detection"
+    python run.py graph-report --graph "Name=/path/to/graph.png"
+    python run.py graph-report --graph "Name=https://dashboard.example/report"
+    python run.py graph-report --graph "Name=/path/to/graph.png" --focus "anomalies"
 
 Dashboard filter tokens are matched case-insensitively against the dashboard
 group `id` and `name` fields defined in config/dashboards.yaml.
@@ -21,12 +22,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "dashboard-agent"))
 if __name__ == "__main__":
     args = sys.argv[1:]
 
-    # CloudHealth functionality has been disabled
-    # if args and args[0] == "cloudhealth-report":
-    #     from src.cloudhealth_report import main as cloudhealth_main
-    #     focus_area = args[1] if len(args) > 1 else ""
-    #     asyncio.run(cloudhealth_main(focus_area))
-    if args and args[0] == "--list":
+    if args and args[0] == "graph-report":
+        from src.graph_report import main as graph_report_main
+        asyncio.run(graph_report_main(args[1:]))
+    elif args and args[0] == "--list":
         from src.orchestrator import list_dashboard_groups
         list_dashboard_groups()
     else:

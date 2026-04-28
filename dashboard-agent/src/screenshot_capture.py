@@ -1,7 +1,7 @@
 """Screenshot Capture Module
 
-Handles connection to browser and systematic screenshot capture of CloudHealth dashboards.
-Captures entire page with incremental scrolling to ensure all graphs are included.
+Handles connection to browser and systematic screenshot capture of dashboard pages.
+Captures entire page content and crops visible graphs into individual images.
 """
 import asyncio
 import logging
@@ -41,6 +41,104 @@ async def verify_browser_connection(cdp_port: int = 9222) -> bool:
         await pw.stop()
 
 
+async def capture_graphs_from_url(
+    name: str,
+    url: str,
+    output_dir: Path,
+    cdp_port: int = 9222,
+) -> tuple[list[Path], dict]:
+    """
+    Capture individual graph images from a URL using the generic screenshot utility.
+
+    Args:
+        name: Caller-provided display name for the URL source
+        url: Dashboard/page URL to capture
+        output_dir: Directory where screenshots and graph crops should be written
+        cdp_port: Chrome DevTools Protocol port for the existing browser session
+
+    Returns:
+        Tuple of (graph_paths, page_info_dict). graph_paths excludes the
+        full-page overview when individual crops/strips were produced.
+
+    Raises:
+        BrowserConnectionError: If can't connect to browser
+        ScreenshotCaptureError: If screenshot capture fails
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Starting graph capture for {name}: {url}")
+    logger.info(f"Screenshot directory: {output_dir}")
+
+    pw = await async_playwright().start()
+    screenshots: list[Path] = []
+    page_info: dict = {}
+
+    try:
+        try:
+            browser = await pw.chromium.connect_over_cdp(f"http://localhost:{cdp_port}")
+            context = browser.contexts[0]
+        except Exception as e:
+            raise BrowserConnectionError(f"Failed to connect to browser: {e}") from e
+
+        page = None
+        for existing_page in context.pages:
+            if existing_page.url == url:
+                page = existing_page
+                break
+
+        if page:
+            logger.info(f"Using existing tab for {name}...")
+            await page.bring_to_front()
+        else:
+            logger.info(f"Opening new tab for {name}...")
+            page = await context.new_page()
+            await page.goto(url)
+
+        logger.info("Waiting for page to load...")
+        await page.wait_for_load_state("load")
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            logger.info("Network did not go idle before timeout; continuing...")
+        await asyncio.sleep(4)
+
+        try:
+            await page.wait_for_selector(
+                'svg, canvas, [class*="chart"], [class*="widget"], [class*="graph"]',
+                timeout=8000,
+            )
+            logger.info("✓ Graph-like elements detected")
+        except Exception:
+            logger.warning("No graph selectors found, continuing with full-page crop fallback...")
+
+        title = await page.title()
+        page_info = {
+            "title": title or name,
+            "url": page.url,
+            "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "screenshot_dir": str(output_dir),
+        }
+
+        screenshots = await capture_full_page(page, output_dir)
+        graph_paths = [path for path in screenshots if path.name != "000_full_page.png"]
+        if not graph_paths:
+            graph_paths = screenshots
+
+        logger.info(f"✓ Captured {len(graph_paths)} graph images from {name}")
+
+        # Don't close the browser
+        browser.close = lambda: asyncio.sleep(0)
+        return graph_paths, page_info
+
+    except BrowserConnectionError:
+        raise
+    except ScreenshotCaptureError:
+        raise
+    except Exception as e:
+        raise ScreenshotCaptureError(f"Unexpected error during URL graph capture: {e}") from e
+    finally:
+        await pw.stop()
+
+
 async def capture_full_page(
     page: Page,
     output_dir: Path,
@@ -48,19 +146,95 @@ async def capture_full_page(
     """
     Capture the entire page content including inside scrollable containers (SPAs).
 
-    CloudHealth renders content inside a scrollable inner div, not document.body.
-    window.scrollTo / document.scrollHeight only see the outer shell (= viewport height).
     Strategy:
-      1. Find the deepest element whose scrollHeight > clientHeight (the real container).
-      2. Expand viewport to full scroll height of that container, wait for re-render.
-      3. Take one full screenshot capturing everything.
-      4. Restore original viewport.
+      1. Find the primary document or SPA scroll container.
+      2. Scroll through it once so lazy-loaded charts render.
+      3. Expand SPA scroll containers when needed.
+      4. Take a true full-page screenshot at CSS-pixel scale.
+      5. Crop one image per detected graph/card boundary.
     """
     screenshots = []
 
-    # Inject JS helper: returns scrollHeight, clientHeight and a CSS selector
-    # for the element with the most scrollable content.
-    container_info = await page.evaluate("""() => {
+    container_info = await _mark_scroll_container(page)
+    scroll_height = container_info.get("scrollHeight", 0)
+    client_height = container_info.get("clientHeight", 0)
+    use_document = container_info.get("useDocument", True)
+    selector = container_info.get("selector")
+
+    logger.info(f"Scroll container: {'document' if use_document else selector}")
+    logger.info(f"Content height: {scroll_height}px  |  Visible height: {client_height}px")
+
+    original_vp = page.viewport_size or {"width": 1920, "height": 1080}
+    prepared_frames: list[dict] = []
+
+    try:
+        await _prime_lazy_content(page, use_document)
+        capture_info = await _expand_scroll_container_for_capture(page, use_document)
+        prepared_frames = await _prepare_embedded_frames_for_capture(page)
+        await asyncio.sleep(2)  # Give charts time to re-render after expansion
+
+        full_page_path = output_dir / "000_full_page.png"
+        try:
+            await page.screenshot(
+                path=str(full_page_path),
+                full_page=True,
+                scale="css",
+            )
+        except Exception as e:
+            raise ScreenshotCaptureError(f"Failed to capture full-page screenshot: {e}") from e
+        screenshots.append(full_page_path)
+        size_kb = full_page_path.stat().st_size // 1024
+        logger.info(
+            f"  ✓ Full-page screenshot: {full_page_path.name} "
+            f"({size_kb}KB, height={capture_info.get('captureHeight', scroll_height)}px)"
+        )
+
+        # Collect chart bounding boxes while the page is still expanded. The
+        # screenshot is taken at CSS scale, so these CSS-pixel coordinates match.
+        boxes = [] if prepared_frames else await _collect_chart_boxes(page)
+        for prepared in prepared_frames:
+            frame_boxes = await _collect_chart_boxes(prepared["frame"])
+            offset = await _frame_page_offset(prepared["frame"])
+            boxes.extend(
+                {
+                    "x": box["x"] + offset["x"],
+                    "y": box["y"] + offset["y"],
+                    "width": box["width"],
+                    "height": box["height"],
+                }
+                for box in frame_boxes
+            )
+
+    finally:
+        for prepared in prepared_frames:
+            await _restore_scroll_container(prepared["frame"])
+        await _restore_frame_elements(page)
+        await _restore_scroll_container(page)
+        await page.set_viewport_size(original_vp)
+        await asyncio.sleep(1)
+
+    # --- Crop one PNG per chart from the full-page image (no more live screenshots) ---
+    if boxes:
+        crops = _crop_graphs_from_full_page(full_page_path, boxes, output_dir)
+        screenshots.extend(crops)
+        logger.info(f"  ✓ Cropped {len(crops)} graphs from full-page image")
+    else:
+        # Fallback: viewport-strip crops from the full-page image
+        logger.info("  No chart elements detected — falling back to viewport-strip crops")
+        screenshots.extend(
+            _crop_strip_sections(full_page_path, output_dir, client_height)
+        )
+
+    return screenshots
+
+
+async def _mark_scroll_container(page: Page) -> dict:
+    """Find and mark the page's primary scroll container for capture."""
+    return await page.evaluate("""() => {
+        document
+            .querySelectorAll('[data-dashboard-agent-scroll-root="true"]')
+            .forEach(el => el.removeAttribute('data-dashboard-agent-scroll-root'));
+
         const candidates = [...document.querySelectorAll('*')].filter(el => {
             const style = window.getComputedStyle(el);
             const ov = style.overflow + ' ' + style.overflowY;
@@ -84,6 +258,7 @@ async def capture_full_page(
         // Pick the candidate with the largest scrollHeight
         candidates.sort((a, b) => b.scrollHeight - a.scrollHeight);
         const el = candidates[0];
+        el.setAttribute('data-dashboard-agent-scroll-root', 'true');
         // Build a selector robust enough to re-find the element
         const id = el.id ? '#' + el.id : '';
         const cls = el.classList.length ? '.' + [...el.classList].slice(0, 2).join('.') : '';
@@ -95,149 +270,425 @@ async def capture_full_page(
         };
     }""")
 
-    scroll_height = container_info["scroll_height"] if "scroll_height" in container_info else container_info.get("scrollHeight", 0)
-    client_height = container_info["client_height"] if "client_height" in container_info else container_info.get("clientHeight", 0)
-    use_document = container_info.get("useDocument", True)
-    selector = container_info.get("selector")
 
-    logger.info(f"Scroll container: {'document' if use_document else selector}")
-    logger.info(f"Content height: {scroll_height}px  |  Visible height: {client_height}px")
+async def _prime_lazy_content(page: Page, use_document: bool) -> None:
+    """Scroll through the page once so lazy-loaded charts render before capture."""
+    await page.evaluate("""async (useDocument) => {
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const root = useDocument
+            ? (document.scrollingElement || document.documentElement)
+            : document.querySelector('[data-dashboard-agent-scroll-root="true"]');
+        if (!root) return;
 
-    # --- Capture: expand viewport to full content height, screenshot, restore ---
-    original_vp = page.viewport_size or {"width": 1920, "height": 1080}
-    vp_width = original_vp["width"]
+        const viewportHeight = useDocument ? window.innerHeight : root.clientHeight;
+        const maxScroll = Math.max(0, root.scrollHeight - viewportHeight);
+        const step = Math.max(400, Math.floor(viewportHeight * 0.75));
 
-    # Set viewport tall enough to show all content
+        for (let y = 0; y <= maxScroll; y += step) {
+            if (useDocument) window.scrollTo(0, y);
+            else root.scrollTop = y;
+            await sleep(250);
+        }
+        if (useDocument) window.scrollTo(0, 0);
+        else root.scrollTop = 0;
+        await sleep(500);
+    }""", use_document)
+
+
+async def _expand_scroll_container_for_capture(page: Page, use_document: bool) -> dict:
+    """Expand SPA scroll containers so full_page screenshots include all content."""
+    if use_document:
+        return await page.evaluate("""() => ({
+            captureHeight: Math.max(
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight
+            )
+        })""")
+
+    return await page.evaluate("""() => {
+        const root = document.querySelector('[data-dashboard-agent-scroll-root="true"]');
+        if (!root) {
+            return {
+                captureHeight: Math.max(
+                    document.body.scrollHeight,
+                    document.documentElement.scrollHeight
+                )
+            };
+        }
+
+        const touched = [];
+        const remember = el => {
+            touched.push([el, el.getAttribute('style')]);
+        };
+
+        let el = root;
+        while (el && el.nodeType === Node.ELEMENT_NODE) {
+            remember(el);
+            if (el === root) {
+                el.style.height = root.scrollHeight + 'px';
+                el.style.maxHeight = 'none';
+                el.style.overflow = 'visible';
+                el.style.overflowY = 'visible';
+            } else {
+                const style = window.getComputedStyle(el);
+                if (/(auto|scroll|hidden|clip)/.test(style.overflow + ' ' + style.overflowY)) {
+                    el.style.overflow = 'visible';
+                    el.style.overflowY = 'visible';
+                }
+                el.style.maxHeight = 'none';
+            }
+            if (el === document.body || el === document.documentElement) break;
+            el = el.parentElement;
+        }
+
+        window.__dashboardAgentScrollRestore = touched;
+        return {
+            captureHeight: Math.max(
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight,
+                root.scrollHeight
+            )
+        };
+    }""")
+
+
+async def _restore_scroll_container(page: Page) -> None:
+    """Restore inline styles changed for full-page capture."""
     try:
-        await page.set_viewport_size({"width": vp_width, "height": scroll_height + 100})
+        await page.evaluate("""() => {
+            const touched = window.__dashboardAgentScrollRestore || [];
+            for (let i = touched.length - 1; i >= 0; i--) {
+                const [el, style] = touched[i];
+                if (!el) continue;
+                if (style === null) el.removeAttribute('style');
+                else el.setAttribute('style', style);
+            }
+            delete window.__dashboardAgentScrollRestore;
+            document
+                .querySelectorAll('[data-dashboard-agent-scroll-root="true"]')
+                .forEach(el => el.removeAttribute('data-dashboard-agent-scroll-root'));
+        }""")
     except Exception as e:
-        raise ScreenshotCaptureError(f"Failed to resize viewport: {e}") from e
-    await asyncio.sleep(2)  # Give charts time to re-render at new height
+        logger.warning(f"Failed to restore scroll container styles: {e}")
 
-    full_page_path = output_dir / "000_full_page.png"
+
+async def _prepare_embedded_frames_for_capture(page: Page) -> list[dict]:
+    """Expand embedded dashboard frames so their internal scroll content is visible."""
+    prepared: list[dict] = []
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+
+        try:
+            frame_info = await _mark_scroll_container(frame)
+            frame_scroll_height = frame_info.get("scrollHeight", 0)
+            frame_client_height = frame_info.get("clientHeight", 0)
+            if frame_scroll_height <= frame_client_height + 20:
+                continue
+
+            await _prime_lazy_content(frame, frame_info.get("useDocument", True))
+            capture_info = await _expand_scroll_container_for_capture(
+                frame,
+                frame_info.get("useDocument", True),
+            )
+            capture_height = max(
+                int(capture_info.get("captureHeight", 0) or 0),
+                int(frame_scroll_height or 0),
+                int(frame_client_height or 0),
+            )
+            await _expand_frame_element_for_capture(frame, capture_height)
+            prepared.append({"frame": frame})
+            logger.info(
+                f"  Expanded embedded frame for capture: "
+                f"{frame_client_height}px -> {capture_height}px"
+            )
+        except Exception as e:
+            logger.warning(f"Could not prepare embedded frame for capture: {e}")
+
+    return prepared
+
+
+async def _expand_frame_element_for_capture(frame, capture_height: int) -> None:
+    """Expand an iframe element and ancestors in the parent page."""
+    frame_element = await frame.frame_element()
+    await frame_element.evaluate("""(iframe, captureHeight) => {
+        const touched = window.__dashboardAgentFrameRestore || [];
+        const remember = el => {
+            if (!touched.some(([existing]) => existing === el)) {
+                touched.push([el, el.getAttribute('style')]);
+            }
+        };
+
+        const iframeTop = iframe.getBoundingClientRect().top + window.scrollY;
+        for (let el = iframe; el && el.nodeType === Node.ELEMENT_NODE; el = el.parentElement) {
+            remember(el);
+
+            const rect = el.getBoundingClientRect();
+            const elTop = rect.top + window.scrollY;
+            const neededHeight = Math.ceil(iframeTop - elTop + captureHeight);
+
+            el.style.maxHeight = 'none';
+            el.style.overflow = 'visible';
+            el.style.overflowY = 'visible';
+
+            if (el === iframe) {
+                el.style.height = captureHeight + 'px';
+                el.style.minHeight = captureHeight + 'px';
+            } else if (neededHeight > rect.height) {
+                el.style.minHeight = neededHeight + 'px';
+            }
+
+            if (el === document.body || el === document.documentElement) break;
+        }
+
+        window.__dashboardAgentFrameRestore = touched;
+    }""", capture_height)
+
+
+async def _restore_frame_elements(page: Page) -> None:
+    """Restore iframe/ancestor styles changed for embedded-frame capture."""
     try:
-        await page.screenshot(path=str(full_page_path))
+        await page.evaluate("""() => {
+            const touched = window.__dashboardAgentFrameRestore || [];
+            for (let i = touched.length - 1; i >= 0; i--) {
+                const [el, style] = touched[i];
+                if (!el) continue;
+                if (style === null) el.removeAttribute('style');
+                else el.setAttribute('style', style);
+            }
+            delete window.__dashboardAgentFrameRestore;
+        }""")
     except Exception as e:
-        raise ScreenshotCaptureError(f"Failed to capture full-page screenshot: {e}") from e
-    screenshots.append(full_page_path)
-    size_kb = full_page_path.stat().st_size // 1024
-    logger.info(f"  ✓ Full-page screenshot: {full_page_path.name} ({size_kb}KB, height={scroll_height}px)")
+        logger.warning(f"Failed to restore embedded frame styles: {e}")
 
-    # Collect chart bounding boxes BEFORE restoring the viewport — coordinates
-    # are in the expanded document space and match pixels in full_page.png.
-    boxes = await _collect_chart_boxes(page)
 
-    # Restore original viewport
-    await page.set_viewport_size(original_vp)
-    await asyncio.sleep(1)
-
-    # --- Crop one PNG per chart from the full-page image (no more live screenshots) ---
-    if boxes:
-        crops = _crop_graphs_from_full_page(full_page_path, boxes, output_dir)
-        screenshots.extend(crops)
-        logger.info(f"  ✓ Cropped {len(crops)} graphs from full-page image")
-    else:
-        # Fallback: viewport-strip crops from the full-page image
-        logger.info("  No chart elements detected — falling back to viewport-strip crops")
-        screenshots.extend(
-            _crop_strip_sections(full_page_path, output_dir, client_height)
-        )
-
-    return screenshots
+async def _frame_page_offset(frame) -> dict:
+    """Return the iframe's top-left coordinate in the outer page screenshot."""
+    frame_element = await frame.frame_element()
+    return await frame_element.evaluate("""iframe => {
+        const r = iframe.getBoundingClientRect();
+        return {
+            x: r.left + window.scrollX,
+            y: r.top + window.scrollY
+        };
+    }""")
 
 
 async def _collect_chart_boxes(page: Page) -> list[dict]:
     """
     Return de-duplicated bounding boxes of chart elements in document coordinates.
 
-    Uses SVG/canvas element detection instead of CSS class names so it works
-    regardless of the chart library or framework CloudHealth uses.
+    Uses SVG/canvas element detection and then climbs to the nearest single-chart
+    card/container so crops include titles and legends without swallowing adjacent
+    dashboard cards.
 
     Strategy:
-    - Find every <svg> that is a chart root (large enough, not nested inside
-      another <svg> element).
-    - Walk up the DOM from each SVG to find the tightest wrapping container
-      that still fits within WRAP_MARGIN px — this captures the chart title and
-      legend that may live in HTML siblings of the SVG.
-    - Also collect large <canvas> elements (canvas-based chart renderers).
-    - De-duplicate by removing any box that completely contains a smaller box
-      already in the result set (i.e. skip parent wrappers that accidentally
-      matched multiple charts inside them).
+    - Find large SVG/canvas chart roots.
+    - For each root, walk up ancestors while the candidate still contains only
+      that one large chart root.
+    - Prefer card-like wrappers and reject page-level containers.
+    - De-duplicate near-identical boxes using intersection-over-union.
     """
     boxes: list[dict] = await page.evaluate("""
         () => {
-            const MIN_W = 150, MIN_H = 100;
-            // How much larger than the SVG the wrapping container is allowed to be
-            // per side (covers titles, legends, axis labels in HTML overlays).
-            const WRAP_MARGIN = 120;
-            const candidates = [];
+            const MIN_W = 180;
+            const MIN_H = 120;
+            const viewportW = window.innerWidth || 1920;
+            const viewportH = window.innerHeight || 1080;
 
-            // ── SVG-based detection ──────────────────────────────────────────────
-            for (const svg of document.querySelectorAll('svg')) {
-                const sr = svg.getBoundingClientRect();
-                if (sr.width < MIN_W || sr.height < MIN_H) continue;
+            function rectOf(el) {
+                const r = el.getBoundingClientRect();
+                return {
+                    left: r.left,
+                    top: r.top,
+                    width: r.width,
+                    height: r.height,
+                    right: r.right,
+                    bottom: r.bottom
+                };
+            }
 
-                // Skip SVGs that are nested inside another SVG — those are
-                // decorative sub-elements of a larger chart, not chart roots.
-                if (svg.parentElement && svg.parentElement.closest('svg')) continue;
+            function isVisibleRect(r) {
+                return r.width >= MIN_W && r.height >= MIN_H;
+            }
 
-                // Walk up to find the tightest wrapping element (title + legend
-                // may live in HTML siblings but share the same parent container).
-                let container = svg;
-                let el = svg.parentElement;
-                while (el && el.tagName !== 'BODY' && el.tagName !== 'HTML') {
-                    const er = el.getBoundingClientRect();
-                    const cr = container.getBoundingClientRect();
-                    if (er.width  <= cr.width  + WRAP_MARGIN &&
-                        er.height <= cr.height + WRAP_MARGIN) {
-                        container = el;
-                        el = el.parentElement;
-                    } else {
-                        break;
+            function isLargeChartRoot(el) {
+                const tag = el.tagName.toLowerCase();
+                if (tag !== 'svg' && tag !== 'canvas') return false;
+                const r = rectOf(el);
+                if (!isVisibleRect(r)) return false;
+                if (tag === 'svg' && el.parentElement && el.parentElement.closest('svg')) {
+                    return false;
+                }
+                return true;
+            }
+
+            function largeChartRootsWithin(el) {
+                const roots = [];
+                if (isLargeChartRoot(el)) roots.push(el);
+                for (const child of el.querySelectorAll('svg, canvas')) {
+                    if (isLargeChartRoot(child)) roots.push(child);
+                }
+                return roots;
+            }
+
+            function containsOnlyRoot(el, root) {
+                const roots = largeChartRootsWithin(el);
+                return roots.length === 1 && roots[0] === root;
+            }
+
+            function classText(el) {
+                const cls = typeof el.className === 'string'
+                    ? el.className
+                    : (el.className && el.className.baseVal) || '';
+                return [
+                    cls,
+                    el.id || '',
+                    el.getAttribute('role') || '',
+                    el.getAttribute('data-testid') || '',
+                    el.getAttribute('aria-label') || ''
+                ].join(' ');
+            }
+
+            function isCardLike(el) {
+                return /(card|panel|paper|widget|tile|chart|graph|visual|dashboard-item|react-grid-item|grid-item|highcharts-container|recharts-wrapper|plotly|echarts|MuiPaper|chakra-card)/i
+                    .test(classText(el));
+            }
+
+            function tooPageLike(r, rootRect) {
+                if (r.width >= viewportW * 0.98 && r.height >= viewportH * 0.80) return true;
+                if (r.height > Math.max(rootRect.height * 3.5, rootRect.height + 520)) return true;
+                if (r.width > Math.max(rootRect.width * 3.0, rootRect.width + 720)) return true;
+                return false;
+            }
+
+            function boxFromRect(r) {
+                return {
+                    x: Math.max(0, r.left + window.scrollX),
+                    y: Math.max(0, r.top + window.scrollY),
+                    width: r.width,
+                    height: r.height
+                };
+            }
+
+            function chooseGraphContainer(root) {
+                const rootRect = rectOf(root);
+                let best = root;
+                let bestScore = 0;
+
+                for (let el = root; el && el.tagName !== 'BODY' && el.tagName !== 'HTML'; el = el.parentElement) {
+                    if (!containsOnlyRoot(el, root)) break;
+                    const r = rectOf(el);
+                    if (r.width < rootRect.width - 5 || r.height < rootRect.height - 5) continue;
+                    if (tooPageLike(r, rootRect)) break;
+
+                    const extraW = r.width - rootRect.width;
+                    const extraH = r.height - rootRect.height;
+                    const hasUsefulWrapperSpace = extraW <= 520 && extraH <= 360;
+                    const cardLike = isCardLike(el);
+                    if (!cardLike && !hasUsefulWrapperSpace) continue;
+
+                    const score =
+                        (cardLike ? 1000 : 0) +
+                        Math.min(400, Math.max(0, extraW)) +
+                        Math.min(400, Math.max(0, extraH)) +
+                        (el.getAttribute('role') === 'figure' ? 250 : 0);
+
+                    if (score >= bestScore) {
+                        best = el;
+                        bestScore = score;
                     }
                 }
 
-                const r = container.getBoundingClientRect();
-                candidates.push({
-                    x:      r.left + window.scrollX,
-                    y:      r.top  + window.scrollY,
-                    width:  r.width,
-                    height: r.height
-                });
+                return boxFromRect(rectOf(best));
             }
 
-            // ── Canvas-based detection ───────────────────────────────────────────
-            for (const cv of document.querySelectorAll('canvas')) {
-                const r = cv.getBoundingClientRect();
-                if (r.width < MIN_W || r.height < MIN_H) continue;
-                candidates.push({
-                    x:      r.left + window.scrollX,
-                    y:      r.top  + window.scrollY,
-                    width:  r.width,
-                    height: r.height
-                });
+            function isTooLargeForCard(r) {
+                return r.width >= viewportW * 0.98 && r.height >= viewportH * 0.92;
             }
 
-            // ── De-duplicate ─────────────────────────────────────────────────────
-            // Sort by area ascending so leaf (smaller) elements are processed first.
-            candidates.sort((a, b) => (a.width * a.height) - (b.width * b.height));
+            function isDashboardTileSeed(el) {
+                const r = rectOf(el);
+                if (r.width < 260 || r.height < 120 || isTooLargeForCard(r)) return false;
 
-            function containedIn(inner, outer) {
-                return inner.x >= outer.x - 20 &&
-                       inner.y >= outer.y - 20 &&
-                       inner.x + inner.width  <= outer.x + outer.width  + 20 &&
-                       inner.y + inner.height <= outer.y + outer.height + 20;
+                const signal = classText(el);
+                const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                if (el.id === 'styled-tile-dashboard') return true;
+                if (/react-grid-item|Element__ElementCard|dashboard-tile|tile|vis-container/i.test(signal)) return true;
+                if (/No Results/i.test(el.getAttribute('aria-label') || '')) return true;
+                if (/No results/i.test(text) && r.width > 300 && r.height > 200) return true;
+                return false;
             }
 
-            const result = [];
-            for (const c of candidates) {
-                // Skip if c is a parent container of something already captured.
-                if (result.some(r => containedIn(r, c))) continue;
-                // Skip near-exact duplicates (same element seen via multiple paths).
-                if (result.some(r => Math.abs(r.x - c.x) < 30 && Math.abs(r.y - c.y) < 30)) continue;
-                result.push(c);
+            function chooseDashboardTile(seed) {
+                let best = seed;
+                for (let el = seed; el && el.tagName !== 'BODY' && el.tagName !== 'HTML'; el = el.parentElement) {
+                    const r = rectOf(el);
+                    if (r.width < 260 || r.height < 160 || isTooLargeForCard(r)) continue;
+
+                    const signal = classText(el);
+                    const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                    const looksLikeTile =
+                        el.id === 'styled-tile-dashboard' ||
+                        /react-grid-item|Element__ElementCard/i.test(signal) ||
+                        (/Card/i.test(signal) && (/Chart|No results|Tile actions/i.test(text)));
+
+                    if (looksLikeTile) {
+                        best = el;
+                        if (el.id === 'styled-tile-dashboard' || /react-grid-item/i.test(signal)) {
+                            break;
+                        }
+                    }
+                }
+                return boxFromRect(rectOf(best));
             }
-            return result;
+
+            const dashboardCards = [...document.querySelectorAll('*')]
+                .filter(isDashboardTileSeed)
+                .map(chooseDashboardTile)
+                .filter(b => b.width >= 260 && b.height >= 160);
+
+            const roots = [...document.querySelectorAll('svg, canvas')]
+                .filter(isLargeChartRoot);
+
+            const candidates = [
+                ...dashboardCards,
+                ...roots.map(chooseGraphContainer),
+            ].filter(b => b.width >= MIN_W && b.height >= MIN_H);
+
+            function area(b) {
+                return b.width * b.height;
+            }
+
+            function iou(a, b) {
+                const left = Math.max(a.x, b.x);
+                const top = Math.max(a.y, b.y);
+                const right = Math.min(a.x + a.width, b.x + b.width);
+                const bottom = Math.min(a.y + a.height, b.y + b.height);
+                const intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
+                if (!intersection) return 0;
+                return intersection / (area(a) + area(b) - intersection);
+            }
+
+            candidates.sort((a, b) => area(b) - area(a));
+            const deduped = [];
+            for (const candidate of candidates) {
+                if (deduped.some(existing => iou(existing, candidate) > 0.82)) continue;
+                deduped.push(candidate);
+            }
+
+            function contains(outer, inner) {
+                return outer.x <= inner.x + 12 &&
+                    outer.y <= inner.y + 12 &&
+                    outer.x + outer.width >= inner.x + inner.width - 12 &&
+                    outer.y + outer.height >= inner.y + inner.height - 12;
+            }
+
+            const graphBoxes = deduped.filter(candidate =>
+                deduped.filter(other => other !== candidate && contains(candidate, other)).length < 2
+            );
+
+            return graphBoxes.sort((a, b) => (a.y - b.y) || (a.x - b.x));
         }
     """)
 

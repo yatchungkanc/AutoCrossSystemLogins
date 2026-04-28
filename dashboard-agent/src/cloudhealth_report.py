@@ -180,8 +180,8 @@ class ReportGenerationAgent:
                 REPORT_TEMPLATE,
                 analysis_markdown,
                 self.dashboard_info,
-                self.screenshot_paths,
-                report_output_path
+                report_output_path,
+                screenshot_paths=self.screenshot_paths,
             )
             
             logger.info(f"└─ ✓ Report generated: {self.report_path.name}")

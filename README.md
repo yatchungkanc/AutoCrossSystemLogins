@@ -87,8 +87,9 @@ source .venv/bin/activate
 python run.py                                      # Open all dashboards
 python run.py --list                               # List available dashboard groups
 python run.py <id-or-name> [<id-or-name> ...]      # Open matching dashboard groups only
-python run.py cloudhealth-report                   # Generate CloudHealth cost report
-python run.py cloudhealth-report "cost by service" # Report with a focus area
+python run.py graph-report --graph "Name=/path/to/graph.png"
+python run.py graph-report --graph "Name=https://dashboard.example/report"
+python run.py graph-report --graph "Name=/path/to/graph.png" --focus "anomalies"
 ```
 
 ### Open all dashboards
@@ -106,33 +107,39 @@ python run.py ops-metrics finance        # open two groups by ID
 
 Run `python run.py --list` to see all available group IDs and names.
 
-### CloudHealth report
+### Graph report
 
-Requires the orchestrator browser session to already be running (`python run.py`) and the GitHub Copilot CLI to be installed:
+Analyzes one or more local graph image files or dashboard URLs and generates a generic HTML report. Local image inputs go straight to analysis; URL inputs are opened in the existing Playwright browser session and captured into individual graph images before analysis.
+
+Requires the GitHub Copilot CLI to be installed:
 
 ```bash
 gh extension install github/gh-copilot
 ```
 
 The report workflow:
-1. Captures full-page screenshots of CloudHealth dashboards
-2. Invokes `copilot -p` to analyze cost trends and anomalies
-3. Generates a timestamped HTML report in `dashboard-agent/output/`
-4. Opens the report in a new browser tab
+1. Validates one or more `--graph "Name=/path/to/image-or-url"` inputs
+2. Captures individual graph images for any URL inputs using the screenshot utility
+3. Invokes `copilot -p` to analyze the graph images
+4. Generates a timestamped HTML report in `dashboard-agent/output/`
+5. Copies graph images into a relative `<report>_graphs/` folder next to the report
 
 #### Example
 
-**Input — dashboard screenshot**: The agent captures the full CloudHealth page as a series of overlapping tile screenshots, producing a composite that covers all chart panels in the session — typically ~19 stacked bar and line charts showing cost history by accounts and by service items across multiple AWS environments (PPE, Works Registry, Source Domain, OpsBank2, Consumption).
+```bash
+python run.py graph-report \
+  --graph "AWS Account Vulnerability Trends=/tmp/trends.png" \
+  --graph "Budget Forecast=https://app.powerbi.com/groups/me/reports/..." \
+  --focus "anomalies, trend changes" \
+  --title "Weekly Graph Review"
+```
 
-![CloudHealth dashboard screenshot](docs/images/cloudhealth_dashboard_screenshot.png)
+**Input**: Local graph/chart images or URLs, named by the caller. URL capture requires a running browser session from `python run.py`.
 
-**Output — generated report**: A timestamped HTML page (`cloudhealth_report_<timestamp>.html`) with three structured sections:
+**Output**: A timestamped HTML page (`graph_report_<timestamp>.html`) with structured graph analysis and an executive summary.
 
-![Generated CloudHealth report](docs/images/cloudhealth_report_example.png)
-
-- **Cost by Accounts** — per-account cost table showing graph thumbnail, account ID, time range, top services, monthly/weekly cost range, and an observations cell with color-coded severity badges (`CRITICAL` / `WARNING` / `POSITIVE`).
-- **Cost by Service** — per-domain breakdown listing the top cost drivers, dollar ranges, and trend observations (e.g., "EC2 - Compute: ~$2,500–$3,500/mo (largest, ~30% of total)").
-- **Executive Summary** — findings table with ~10 rows covering total run rate, top cost drivers, anomalies, and 6-month trends, followed by three tiers of prioritized action items: *Immediate (this week)*, *Short-term (next 30 days)*, and *Medium-term (next quarter)*.
+- **Graph Analysis** — per-graph findings keyed by caller-provided graph names, not filenames.
+- **Executive Summary** — cross-graph patterns, largest movements, anomalies, data-quality notes, and recommended follow-up.
 
 All graph thumbnails are clickable — clicking opens a full-size lightbox overlay.
 
@@ -140,7 +147,7 @@ All graph thumbnails are clickable — clicking opens a full-size lightbox overl
 
 - Python 3.11+
 - Chromium — installed automatically by `setup.sh` via `playwright install chromium`
-- GitHub Copilot CLI — required only for `python run.py cloudhealth-report`
+- GitHub Copilot CLI — required only for `python run.py graph-report`
 
 ## Project Layout
 
@@ -151,11 +158,11 @@ dashboard-agent/
   .env                        # Credentials (not committed)
   config/
     dashboards.yaml           # Dashboard registry (add/remove URLs here)
-    prompts.yaml              # CloudHealth analysis prompts
+    prompts.yaml              # Generic graph analysis prompts
     report_template.html      # HTML report template
   src/
     orchestrator.py           # Browser launch, auth, tab management
-    cloudhealth_report.py     # CloudHealth report orchestrator
+    graph_report.py           # Generic graph report orchestrator
     auth/                     # Auth strategies per service
     config/loader.py          # Credential loader
   output/                     # Generated HTML reports

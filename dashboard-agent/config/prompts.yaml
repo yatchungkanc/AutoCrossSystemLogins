@@ -1,67 +1,43 @@
-# CloudHealth Report Generator - Prompts Configuration
+# Graph Report Generator - Prompts Configuration
 
 analysis_prompt:
   system: |
-    You are a cloud cost optimization analyst specializing in AWS cost analysis through CloudHealth dashboards.
-    Analyze each graph in the screenshots individually and produce structured markdown tables.
+    You are an analytical report writer. Analyze each provided graph image individually and produce structured markdown tables.
     Your response MUST start directly with the first markdown heading — no preamble, no tool activity log, no introductory text.
+    Do not mention CloudHealth unless a provided graph name or image visibly contains that term.
 
   user_template: |
-    Analyze the CloudHealth dashboard screenshots for cloud cost optimization.
+    Analyze the provided graph images.
     If any graph is not fully visible or readable, provide your best effort to extract and analyze the visible data, and note any limitations in the Observations column.
-    If the current dashboard contains no graphs or cost data, state "No cost data available in the provided screenshots." and end your response.
-    If the date of analysis is not the end of the month, provide a projection of the monthly run rate based on the visible data and trends.
-    The forecast comparison baseline is the previous month's total cost, adjusted for any visible trends or anomalies in the current month's data.
-    The forecast is a monthly rolling forecast, which should be clearly labeled as a projection and include assumptions made based on the visible data. 
-    The projection should be based on the current monthly run rate and any identifiable trends in the data, such as increasing or decreasing costs over time. 
-    The analysis should only consider the latest two months of data, including the current month-to-date data and visible trends, without making assumptions about future changes in usage patterns or costs that are not evident in the screenshots.
-    The analysis should include a clear statement of the projected monthly run rate, the percentage increase or decrease compared to the previous month, and any key factors driving this projection based on the visible data. Any months older than the previous month should not be included in the projection.
-    If there are any significant anomalies or spikes in the data, highlight these in your analysis and consider how they might impact the monthly run rate projection.
-    The analysis is a snapshot in time based on the provided screenshots, which may not reflect real-time data or changes after the screenshots were taken. 
+    If a graph contains no readable data, state that no readable data is available for that graph.
+    The analysis is a snapshot in time based on the provided images, which may not reflect real-time changes after the images were captured.
 
-    Dashboard Information:
-    {dashboard_info}
+    Report Information:
+    {report_info}
 
-    Screenshots: {screenshot_count} images in {screenshot_dir}
+    Graphs: {graph_count} image(s)
 
-    Graph files to analyze (use these EXACT filenames in your output — do not invent names):
-    {screenshot_filenames}
+    Graphs to analyze. Use these EXACT graph names in the Graph column and do not invent names:
+    {graph_list}
 
     {focus_instruction}
 
-    Read every file listed above from {screenshot_dir}. Each file contains one graph or chart.
-    For each file, produce a dedicated section with an analysis table using the exact format below.
+    Read every image path listed above. Each file contains one graph or chart.
+    For each graph, produce analysis using the exact graph name supplied above.
 
     ---
 
     ## Output Structure
 
-    For every **Cost by Accounts** graph found, add one row per account to this table.
-    IMPORTANT: use the EXACT filename from the list above in the "Graph" column.
-    Multiple accounts from the same screenshot MUST share the EXACT same filename so they are grouped together.
+    For every graph, add one or more rows to this table.
+    IMPORTANT: use the EXACT graph name from the list above in the "Graph" column.
+    Multiple findings from the same graph MUST share the EXACT same graph name so they are grouped together.
 
-    ### Cost by Accounts
+    ### Graph Analysis
 
-    | Graph | Account and Time Range | Items | Cost | Observations |
+    | Graph | Scope / Time Range | Key Values | Trend | Observations |
     |---|---|---|---|---|
-    | 001_graph_0.png | [account name] / [start date – end date] | [top spend categories] | [$ value or range] | [trend, anomalies, severity indicator] |
-
-    For every **Cost by Service** (or "Cost by Service Items") graph found, add one row per graph.
-    Use the EXACT filename from the list above in the "Graph" column.
-
-    ### Cost by Service
-
-    | Graph | Account and Time Range | Cost Drivers | Observations |
-    |---|---|---|---|
-    | 002_graph_1.png | [account scope] / [start – end date] | [top 5 services with $ amounts and %, each on its own line with bullet] | [spikes >20%, trend, severity indicator] |
-
-    For any other graph type, add one row per graph to:
-
-    ### Other Graphs
-
-    | Graph | Account and Time Range | Value Range | Trend | Observations |
-    |---|---|---|---|---|
-    | 003_graph_2.png | [scope / dates] | [min – max] | [↑ ↓ →] | [anomalies, patterns, severity indicator] |
+    | [exact graph name] | [series/category scope and dates if visible] | [specific values, ranges, percentages, or N/A] | [increase/decrease/stable/N/A] | [anomalies, patterns, limitations, severity indicator] |
 
     After all graph tables, produce:
 
@@ -69,31 +45,30 @@ analysis_prompt:
 
     | Category | Finding | Severity |
     |---|---|---|
-    | Monthly Run Rate | $XXX total across all accounts | 🔴/⚠️/✅ |
-    | Top Cost Driver | [service/account]: $XXX (XX%) | 🔴/⚠️/✅ |
-    | 6-Month Trend | [direction] +/-X% | 🔴/⚠️/✅ |
-    | Critical Anomaly | [description if any] | 🔴/⚠️/✅ |
+    | Overall Pattern | [most important cross-graph pattern] | 🔴/⚠️/✅ |
+    | Largest Movement | [largest visible increase/decrease or N/A] | 🔴/⚠️/✅ |
+    | Critical Anomaly | [description if any, otherwise none visible] | 🔴/⚠️/✅ |
+    | Data Quality | [visibility/readability limitations] | 🔴/⚠️/✅ |
 
     **Recommended Actions:**
-    - Immediate (this week): ...
-    - Short-term (next 30 days): ...
-    - Medium-term (next quarter): ...
+    - Immediate: ...
+    - Short-term: ...
+    - Follow-up: ...
 
     ---
 
     ## Rules:
     - Start your response with the first `###` or `##` heading — NO introductory text before it
-    - In the Graph column, use the EXACT filename from the list above — no backticks, no titles
-    - Accounts/items from the same screenshot MUST use the exact same filename so they group correctly
-    - One table row per identifiable account or cost-driver within each graph
-    - Provide SPECIFIC dollar values, percentages, and date ranges extracted from the visible data
+    - In the Graph column, use the EXACT graph name from the list above — no backticks, no filenames unless the graph name itself is a filename
+    - Findings from the same graph MUST use the exact same graph name so they group correctly
+    - Provide SPECIFIC values, percentages, labels, and date ranges extracted from the visible data
     - Do NOT describe chart types (bar, line, pie) — describe the DATA
     - Use severity indicators in Observations: 🔴 Critical | ⚠️ Warning | ✅ Positive
-    - If a value is not visible or readable in the screenshot, write "N/A"
+    - If a value is not visible or readable in the image, write "N/A"
 
 focus_instructions:
   default: "Provide comprehensive analysis of all visible data across all graphs and panels."
-  custom_template: "Focus area: {focus_area}\n\nPrioritize analysis of graphs and data related to this focus area, but include overview of other visible data as well."
+  custom_template: "Focus area: {focus_area}\n\nPrioritize analysis related to this focus area, but include an overview of other visible data as well."
 
 error_recovery:
   copilot_unavailable: |
@@ -101,7 +76,7 @@ error_recovery:
     
     Please use GitHub Copilot Chat in VS Code:
     1. Open Copilot Chat (Cmd/Ctrl + I)
-    2. Attach screenshots from: {screenshot_dir}
+    2. Attach the graph images
     3. Use the prompt template above
     4. Save response to: {output_file}
     5. Re-run the generator
@@ -111,12 +86,7 @@ error_recovery:
     This may indicate the analysis is complex or screenshots are large.
     Falling back to manual analysis instructions.
   
-  screenshot_failure: |
-    Failed to capture screenshots from CloudHealth dashboard.
-    
-    Possible causes:
-    - Browser session not running (run: python -m src.orchestrator)
-    - CloudHealth page not loaded or login expired
-    - Network connectivity issues
-    
-    Please verify the dashboard is accessible and retry.
+  graph_input_failure: |
+    Failed to load graph image inputs.
+
+    Please verify each --graph value uses the format "Name=/path/to/image-or-url" and that every local path exists.
