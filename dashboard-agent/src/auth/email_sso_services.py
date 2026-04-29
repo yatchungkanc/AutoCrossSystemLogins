@@ -56,6 +56,10 @@ async def login_cloudzero(context: BrowserContext, email: str) -> bool:
             except Exception:
                 # Retry once after another account-picker check.
                 await handle_microsoft_account_picker(page, email)
+                await page.wait_for_url(
+                    lambda url: CLOUDZERO_LOGIN.redirect_complete(url),
+                    timeout=CLOUDZERO_LOGIN.redirect_timeout_ms,
+                )
 
             await page.wait_for_load_state("load")
             await asyncio.sleep(1)

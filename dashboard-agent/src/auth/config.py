@@ -51,4 +51,5 @@ CLOUDZERO_LOGIN = EmailLoginConfig(
     already_logged_in=lambda url: "auth.cloudzero.com" not in url and "/login" not in url,
     redirect_complete=lambda url: "auth.cloudzero.com" not in url and "microsoftonline.com" not in url,
     use_first_email_field=True,
+    redirect_timeout_ms=60000,  # CloudZero SSO redirects can take longer on cold sessions.
 )
