@@ -18,6 +18,7 @@ from src.analysis import (
     analyze_graphs,
 )
 from src.graph_inputs import GraphInput, GraphInputError, GraphSource, parse_graph_sources
+from src.orchestrator import load_dashboards
 from src.report_generator import generate_html_report, ReportGenerationError
 from src.screenshot_capture import (
     BrowserConnectionError,
@@ -41,6 +42,65 @@ REPORT_TEMPLATE = CONFIG_DIR / "report_template.html"
 CDP_PORT = 9222
 
 
+def graph_sources_from_dashboard_groups(groups: list[str]) -> list[GraphSource]:
+    """Resolve dashboard group filters into named URL graph sources."""
+    dashboards = load_dashboards(groups)
+    if not dashboards:
+        raise GraphInputError(
+            "No dashboards matched the requested group value(s): "
+            f"{', '.join(groups)}"
+        )
+
+    matched_group_ids = {dashboard["id"] for dashboard in dashboards}
+    missing_groups = [group for group in groups if not load_dashboards([group])]
+    if missing_groups:
+        raise GraphInputError(
+            "No dashboards matched the requested group value(s): "
+            f"{', '.join(missing_groups)}"
+        )
+
+    sources = [
+        GraphSource(
+            name=f"{dashboard['id']}: {dashboard['name']}",
+            value=dashboard["url"],
+            url=dashboard["url"],
+        )
+        for dashboard in dashboards
+    ]
+
+    logger.info(
+        "Resolved %s dashboard URL(s) from group(s): %s",
+        len(sources),
+        ", ".join(sorted(matched_group_ids)),
+    )
+    return sources
+
+
+def resolve_graph_sources(
+    graph_specs: list[str] | None,
+    groups: list[str] | None,
+) -> list[GraphSource]:
+    """Resolve explicit graph specs plus dashboard group shortcuts."""
+    sources: list[GraphSource] = []
+
+    if graph_specs:
+        sources.extend(parse_graph_sources(graph_specs))
+    if groups:
+        sources.extend(graph_sources_from_dashboard_groups(groups))
+
+    if not sources:
+        raise GraphInputError("At least one --graph or --group value is required.")
+
+    seen_names: set[str] = set()
+    for source in sources:
+        key = source.name.casefold()
+        if key in seen_names:
+            raise GraphInputError(f"Duplicate graph name: {source.name}")
+        seen_names.add(key)
+
+    return sources
+
+
 class GraphReportAgent:
     """Agent that orchestrates generic graph report generation."""
 
@@ -58,6 +118,7 @@ class GraphReportAgent:
         self.cdp_port = cdp_port
         self.temp_dir: Path | None = None
         self.report_path: Path | None = None
+        self.skipped_sources: list[tuple[str, str]] = []
 
     async def run(self) -> Path:
         """Execute the graph analysis and report generation workflow."""
@@ -102,15 +163,35 @@ class GraphReportAgent:
 
         for source_index, source in enumerate(url_sources, start=1):
             source_dir = self.temp_dir / f"{source_index:03d}_{_slugify(source.name)}"
-            captured_paths, _ = await capture_graphs_from_url(
-                source.name,
-                source.url,
-                source_dir,
-                self.cdp_port,
-            )
+            try:
+                captured_paths, _ = await capture_graphs_from_url(
+                    source.name,
+                    source.url,
+                    source_dir,
+                    self.cdp_port,
+                )
+            except (BrowserConnectionError, ScreenshotCaptureError) as e:
+                reason = str(e)
+                self.skipped_sources.append((source.name, reason))
+                logger.warning("Skipping graph source '%s': %s", source.name, reason)
+                continue
+
+            if not captured_paths:
+                reason = "No reliable graph crops were captured."
+                self.skipped_sources.append((source.name, reason))
+                logger.warning("Skipping graph source '%s': %s", source.name, reason)
+                continue
             graphs.extend(_name_captured_graphs(source.name, captured_paths))
 
         if not graphs:
+            if self.skipped_sources:
+                skipped = "; ".join(
+                    f"{name}: {reason}" for name, reason in self.skipped_sources
+                )
+                raise GraphInputError(
+                    "No graph images were available for analysis. "
+                    f"Skipped sources: {skipped}"
+                )
             raise GraphInputError("No graph images were available for analysis.")
 
         seen_names: set[str] = set()
@@ -121,6 +202,8 @@ class GraphReportAgent:
             seen_names.add(key)
 
         logger.info(f"Resolved {len(graphs)} graph image(s) for analysis")
+        if self.skipped_sources:
+            logger.warning("Skipped %s graph source(s)", len(self.skipped_sources))
         return graphs
 
     async def _analyze_graphs(self, report_info: dict) -> str:
@@ -202,6 +285,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Named graph image or URL to analyze. Repeat for multiple inputs.",
     )
     parser.add_argument(
+        "--group",
+        action="append",
+        default=[],
+        metavar="ID_OR_NAME",
+        help=(
+            "Dashboard group id or name fragment from dashboards.yaml. "
+            "Repeat for multiple groups."
+        ),
+    )
+    parser.add_argument(
+        "groups",
+        nargs="*",
+        metavar="GROUP",
+        help="Dashboard group id or name fragment from dashboards.yaml.",
+    )
+    parser.add_argument(
         "--focus",
         action="append",
         metavar="TEXT",
@@ -227,7 +326,7 @@ async def main(argv: list[str] | None = None) -> Path:
     args = parser.parse_args(argv)
 
     try:
-        sources = parse_graph_sources(args.graph)
+        sources = resolve_graph_sources(args.graph, [*args.group, *args.groups])
         focus_areas = _parse_focus_values(args.focus)
         agent = GraphReportAgent(
             sources=sources,

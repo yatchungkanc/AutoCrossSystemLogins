@@ -1,6 +1,6 @@
 # AutoCrossSystemLogins (Project HotGates)
 
-Browser automation CLI that logs into multiple internal dashboards (Tableau, SharePoint, JIRA, Azure, CloudHealth) in a single persistent Chromium session using SSO/token-based authentication.
+Browser automation CLI that logs into multiple internal dashboards (Tableau, SharePoint, JIRA, Azure, CloudZero) in a single persistent Chromium session using SSO/token-based authentication.
 
 ## Quick Start
 
@@ -22,7 +22,6 @@ SSO_PASSWORD=<password>
 TABLEAU_EMAIL=<email>
 ATLASSIAN_EMAIL=<email>
 ATLASSIAN_API_TOKEN=<api_token>
-CLOUDHEALTH_EMAIL=<email>       # optional
 CLOUDZERO_EMAIL=<email>         # optional
 ```
 
@@ -47,10 +46,10 @@ dashboards:
       - name: "View 2"
         url: "https://<tableau-region>.online.tableau.com/#/site/<site>/views/..."
 
-  - id: cloudhealth-dashboard
-    name: "CloudHealth"
-    auth_type: cloudhealth
-    url: "https://apps.cloudhealthtech.com/dashboard/<dashboard-id>"
+  - id: cloudzero-dashboard
+    name: "CloudZero"
+    auth_type: cloudzero
+    url: "https://app.cloudzero.com/analytics/dashboards/<dashboard-id>/view"
 
   # ... etc
 ```
@@ -58,7 +57,7 @@ dashboards:
 Each entry requires:
 - `id` — unique identifier (used internally)
 - `name` — display name shown in logs
-- `auth_type` — one of `email_only`, `sso`, `aipro`, `powerbi`, `smartsheet`, `cloudhealth`, `cloudzero`, `atlassian`
+- `auth_type` — one of `email_only`, `sso`, `aipro`, `powerbi`, `smartsheet`, `cloudzero`, `atlassian`
 - `url` (single) or `urls` (list of `name`/`url` pairs)
 
 `dashboards.yaml` is gitignored — it is never committed. `dashboards.yaml.example` is the committed template.
@@ -89,12 +88,16 @@ python run.py --list                               # List available dashboard gr
 python run.py <id-or-name> [<id-or-name> ...]      # Open matching dashboard groups only
 python run.py graph-report --graph "Name=/path/to/graph.png"
 python run.py graph-report --graph "Name=https://dashboard.example/report"
+python run.py graph-report ops-metrics cloudzero-dashboard
+python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 python run.py graph-report --graph "Name=/path/to/graph.png" --focus "anomalies"
 ```
 
 ### Open all dashboards
 
 Launches a maximized Chromium window, authenticates (or skips if session is still valid), and opens every configured dashboard as a tab. The script exits and the browser stays open.
+
+When the configured launch includes both `ops-metrics` and `cloudzero-dashboard`, `run.py` automatically runs a graph report for those two groups after all requested tabs open successfully. If any tab fails to open, the automatic report is skipped.
 
 ### Open specific dashboards
 
@@ -109,7 +112,7 @@ Run `python run.py --list` to see all available group IDs and names.
 
 ### Graph report
 
-Analyzes one or more local graph image files or dashboard URLs and generates a generic HTML report. Local image inputs go straight to analysis; URL inputs are opened in the existing Playwright browser session and captured into individual graph images before analysis.
+Analyzes one or more local graph image files, dashboard URLs, or dashboard groups from `dashboards.yaml` and generates a generic HTML report. Local image inputs go straight to analysis; URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
 
 Requires the GitHub Copilot CLI to be installed:
 
@@ -118,7 +121,7 @@ gh extension install github/gh-copilot
 ```
 
 The report workflow:
-1. Validates one or more `--graph "Name=/path/to/image-or-url"` inputs
+1. Validates one or more `--graph "Name=/path/to/image-or-url"` or dashboard group inputs
 2. Captures individual graph images for any URL inputs using the screenshot utility
 3. Invokes `copilot -p` to analyze the graph images
 4. Generates a timestamped HTML report in `dashboard-agent/output/`
@@ -134,7 +137,20 @@ python run.py graph-report \
   --title "Weekly Graph Review"
 ```
 
-**Input**: Local graph/chart images or URLs, named by the caller. URL capture requires a running browser session from `python run.py`.
+Dashboard groups can be supplied positionally or with repeated `--group` flags:
+
+```bash
+python run.py graph-report ops-metrics cloudzero-dashboard
+python run.py graph-report --group ops-metrics --group cloudzero-dashboard
+```
+
+**Input**: Local graph/chart images or URLs, named by the caller, plus dashboard groups from `dashboards.yaml`. URL capture requires a running browser session from `python run.py`.
+
+**URL capture behavior**:
+- Reuses an already-open tab when the normalized URL matches, including reordered or extra query parameters.
+- For CloudZero Explorer URLs, captures the chart plus the related data table below it when present.
+- For CloudZero dashboard `/view` URLs, captures each individual dashboard tile from the embedded dashboard frame using `div#styled-tile-dashboard`.
+- Skips a URL if no reliable chart or no-results tile can be captured; report generation continues with remaining valid inputs. If every requested URL is skipped, the command exits with a clear error.
 
 **Output**: A timestamped HTML page (`graph_report_<timestamp>.html`) with structured graph analysis and an executive summary.
 

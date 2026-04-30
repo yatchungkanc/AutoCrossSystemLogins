@@ -38,11 +38,6 @@ dashboards:
       - name: "<Page Name>"
         url: "https://<org>.atlassian.net/wiki/spaces/<space-key>/pages/<page-id>/<page-title>"
 
-  - id: cloudhealth-dashboard
-    name: "CloudHealth"
-    auth_type: cloudhealth
-    url: "https://apps.cloudhealthtech.com/dashboard/<dashboard-id>"
-
   - id: powerbi-dashboard
     name: "<Report Group Name>"
     auth_type: powerbi
@@ -57,6 +52,6 @@ dashboards:
   - id: cloudzero-dashboard
     name: "CloudZero"
     auth_type: cloudzero
-    url: "https://auth.cloudzero.com/u/login/"
+    url: "https://app.cloudzero.com/analytics/dashboards/<dashboard-id>/view"
 
   # Add more dashboards below...

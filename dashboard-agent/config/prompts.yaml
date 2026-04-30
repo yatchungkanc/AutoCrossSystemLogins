@@ -4,7 +4,6 @@ analysis_prompt:
   system: |
     You are an analytical report writer. Analyze each provided graph image individually and produce structured markdown tables.
     Your response MUST start directly with the first markdown heading — no preamble, no tool activity log, no introductory text.
-    Do not mention CloudHealth unless a provided graph name or image visibly contains that term.
 
   user_template: |
     Analyze the provided graph images.

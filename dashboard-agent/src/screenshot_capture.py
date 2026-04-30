@@ -5,8 +5,10 @@ Captures entire page content and crops visible graphs into individual images.
 """
 import asyncio
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qsl, urlparse
 from PIL import Image
 from playwright.async_api import async_playwright, Page
 import yaml
@@ -22,6 +24,92 @@ class ScreenshotCaptureError(Exception):
 class BrowserConnectionError(Exception):
     """Raised when unable to connect to browser."""
     pass
+
+
+_LOGIN_DOMAINS = (
+    "login.microsoftonline.com",
+    "device.login.microsoftonline.com",
+    "auth.cloudzero.com",
+    "login.tableau.com",
+    "sso.online.tableau.com",
+)
+_VOLATILE_QUERY_KEYS = {"iid", "session", "authuser", "prompt"}
+
+
+def _is_login_redirect(url: str) -> bool:
+    return any(domain in url for domain in _LOGIN_DOMAINS)
+
+
+def _normalized_query_items(query: str) -> frozenset[tuple[str, str]]:
+    query = query.lstrip("?")
+    items = []
+    for key, value in parse_qsl(query, keep_blank_values=True):
+        normalized_key = key.lower().lstrip(":")
+        if normalized_key in _VOLATILE_QUERY_KEYS:
+            continue
+        items.append((normalized_key, value))
+    return frozenset(items)
+
+
+def _url_signature(url: str) -> dict:
+    parsed = urlparse(url)
+    fragment_path, _, fragment_query = parsed.fragment.partition("?")
+    return {
+        "host": parsed.netloc.lower(),
+        "path": (parsed.path or "/").rstrip("/") or "/",
+        "fragment_path": fragment_path.rstrip("/"),
+        "query": _normalized_query_items(parsed.query),
+        "fragment_query": _normalized_query_items(fragment_query),
+    }
+
+
+def _url_match_score(requested_url: str, candidate_url: str) -> int:
+    """Score how likely an existing browser tab is the requested dashboard URL."""
+    if not candidate_url or _is_login_redirect(candidate_url):
+        return 0
+    if requested_url == candidate_url:
+        return 10_000
+
+    requested = _url_signature(requested_url)
+    candidate = _url_signature(candidate_url)
+    if requested["host"] != candidate["host"]:
+        return 0
+    if requested["path"] != candidate["path"]:
+        return 0
+    if requested["fragment_path"] and candidate["fragment_path"]:
+        if requested["fragment_path"] != candidate["fragment_path"]:
+            return 0
+    elif requested["fragment_path"] != candidate["fragment_path"]:
+        return 0
+
+    score = 1_000
+    for key in ("query", "fragment_query"):
+        requested_items = requested[key]
+        candidate_items = candidate[key]
+        if requested_items:
+            if not requested_items.issubset(candidate_items):
+                return 0
+            score += 10 * len(requested_items)
+        elif candidate_items:
+            score += 1
+    return score
+
+
+def _find_existing_page_for_url(pages, url: str):
+    scored_pages = [
+        (_url_match_score(url, getattr(page, "url", "")), page)
+        for page in pages
+    ]
+    scored_pages = [(score, page) for score, page in scored_pages if score > 0]
+    if not scored_pages:
+        return None
+    return max(scored_pages, key=lambda item: item[0])[1]
+
+
+def _is_dashboard_view_url(url: str) -> bool:
+    """Return true for dashboard collection views such as CloudZero /view pages."""
+    parsed = urlparse(url)
+    return parsed.path.rstrip("/").endswith("/view")
 
 
 async def verify_browser_connection(cdp_port: int = 9222) -> bool:
@@ -79,11 +167,7 @@ async def capture_graphs_from_url(
         except Exception as e:
             raise BrowserConnectionError(f"Failed to connect to browser: {e}") from e
 
-        page = None
-        for existing_page in context.pages:
-            if existing_page.url == url:
-                page = existing_page
-                break
+        page = _find_existing_page_for_url(context.pages, url)
 
         if page:
             logger.info(f"Using existing tab for {name}...")
@@ -99,16 +183,8 @@ async def capture_graphs_from_url(
             await page.wait_for_load_state("networkidle", timeout=10000)
         except Exception:
             logger.info("Network did not go idle before timeout; continuing...")
-        await asyncio.sleep(4)
-
-        try:
-            await page.wait_for_selector(
-                'svg, canvas, [class*="chart"], [class*="widget"], [class*="graph"]',
-                timeout=8000,
-            )
-            logger.info("✓ Graph-like elements detected")
-        except Exception:
-            logger.warning("No graph selectors found, continuing with full-page crop fallback...")
+        dashboard_view = _is_dashboard_view_url(page.url) or _is_dashboard_view_url(url)
+        await _wait_for_capture_ready(page, dashboard_view=dashboard_view)
 
         title = await page.title()
         page_info = {
@@ -118,10 +194,14 @@ async def capture_graphs_from_url(
             "screenshot_dir": str(output_dir),
         }
 
-        screenshots = await capture_full_page(page, output_dir)
+        screenshots = await capture_full_page(
+            page,
+            output_dir,
+            dashboard_view=dashboard_view,
+        )
         graph_paths = [path for path in screenshots if path.name != "000_full_page.png"]
         if not graph_paths:
-            graph_paths = screenshots
+            raise ScreenshotCaptureError(f"No reliable graph crops found for {name}")
 
         logger.info(f"✓ Captured {len(graph_paths)} graph images from {name}")
 
@@ -142,6 +222,7 @@ async def capture_graphs_from_url(
 async def capture_full_page(
     page: Page,
     output_dir: Path,
+    dashboard_view: bool = False,
 ) -> list[Path]:
     """
     Capture the entire page content including inside scrollable containers (SPAs).
@@ -188,12 +269,19 @@ async def capture_full_page(
             f"  ✓ Full-page screenshot: {full_page_path.name} "
             f"({size_kb}KB, height={capture_info.get('captureHeight', scroll_height)}px)"
         )
+        css_size = await _capture_css_size(page, capture_info)
 
         # Collect chart bounding boxes while the page is still expanded. The
-        # screenshot is taken at CSS scale, so these CSS-pixel coordinates match.
-        boxes = [] if prepared_frames else await _collect_chart_boxes(page)
+        # boxes are CSS-pixel document coordinates. The screenshot may still be
+        # device-pixel sized in a persistent browser, so crop scaling happens
+        # after the PNG is loaded.
+        boxes = await _collect_capture_boxes(
+            page,
+            dashboard_view,
+            warn_on_fallback=not prepared_frames,
+        )
         for prepared in prepared_frames:
-            frame_boxes = await _collect_chart_boxes(prepared["frame"])
+            frame_boxes = await _collect_capture_boxes(prepared["frame"], dashboard_view)
             offset = await _frame_page_offset(prepared["frame"])
             boxes.extend(
                 {
@@ -215,17 +303,158 @@ async def capture_full_page(
 
     # --- Crop one PNG per chart from the full-page image (no more live screenshots) ---
     if boxes:
-        crops = _crop_graphs_from_full_page(full_page_path, boxes, output_dir)
+        crops = _crop_graphs_from_full_page(full_page_path, boxes, output_dir, css_size=css_size)
         screenshots.extend(crops)
         logger.info(f"  ✓ Cropped {len(crops)} graphs from full-page image")
     else:
-        # Fallback: viewport-strip crops from the full-page image
-        logger.info("  No chart elements detected — falling back to viewport-strip crops")
-        screenshots.extend(
-            _crop_strip_sections(full_page_path, output_dir, client_height)
-        )
+        logger.warning("  No reliable chart elements detected; skipping graph crops")
 
     return screenshots
+
+
+async def _wait_for_capture_ready(
+    page: Page,
+    dashboard_view: bool = False,
+    timeout_ms: int = 45_000,
+    poll_ms: int = 1_000,
+) -> list[dict]:
+    """
+    Wait until the page has stable chart/no-results candidates before capture.
+
+    SPA dashboards often fire the load event before charts finish rendering. This
+    gate waits for useful candidates with stable dimensions and avoids treating
+    filters or loading shells as graph crops.
+    """
+    deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+    previous_signature = None
+    stable_ticks = 0
+    last_boxes: list[dict] = []
+    last_loading_count = 0
+
+    while asyncio.get_running_loop().time() < deadline:
+        if _is_login_redirect(page.url):
+            raise ScreenshotCaptureError(f"Page redirected to login before capture: {page.url}")
+
+        last_loading_count = await _visible_loading_indicator_count(page)
+        last_boxes = await _collect_ready_boxes(page, dashboard_view)
+        signature = _box_signature(last_boxes)
+
+        if last_boxes and signature == previous_signature:
+            stable_ticks += 1
+        else:
+            stable_ticks = 0
+            previous_signature = signature
+
+        if last_boxes and stable_ticks >= 2 and last_loading_count == 0:
+            logger.info(f"✓ Capture-ready charts detected ({len(last_boxes)} stable candidate(s))")
+            return last_boxes
+
+        await asyncio.sleep(poll_ms / 1000)
+
+    if last_boxes and stable_ticks >= 1:
+        logger.warning(
+            "Capture readiness timed out with %s loading indicator(s); using %s stable candidate(s)",
+            last_loading_count,
+            len(last_boxes),
+        )
+        return last_boxes
+
+    raise ScreenshotCaptureError("No stable chart or no-results candidates were found before timeout")
+
+
+async def _collect_ready_boxes(page: Page, dashboard_view: bool) -> list[dict]:
+    """Collect capture candidates from the main page and embedded frames for readiness checks."""
+    boxes = await _collect_capture_boxes(page, dashboard_view, warn_on_fallback=False)
+    for frame in page.frames:
+        if frame is page.main_frame:
+            continue
+        try:
+            boxes.extend(await _collect_capture_boxes(frame, dashboard_view, warn_on_fallback=False))
+        except Exception as e:
+            logger.debug(f"Could not collect readiness boxes from frame {frame.url}: {e}")
+    return boxes
+
+
+async def _capture_css_size(page: Page, capture_info: dict) -> dict:
+    try:
+        size = await page.evaluate("""() => ({
+            width: Math.max(
+                document.body.scrollWidth,
+                document.documentElement.scrollWidth,
+                window.innerWidth
+            ),
+            height: Math.max(
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight,
+                window.innerHeight
+            )
+        })""")
+    except Exception:
+        size = {}
+
+    return {
+        "width": int(size.get("width") or 0),
+        "height": int(size.get("height") or capture_info.get("captureHeight") or 0),
+    }
+
+
+def _box_signature(boxes: list[dict]) -> tuple[tuple[int, int, int, int], ...]:
+    return tuple(
+        sorted(
+            (
+                round(float(box.get("x", 0))),
+                round(float(box.get("y", 0))),
+                round(float(box.get("width", 0))),
+                round(float(box.get("height", 0))),
+            )
+            for box in boxes
+        )
+    )
+
+
+async def _visible_loading_indicator_count(page: Page) -> int:
+    try:
+        return await page.evaluate("""
+            () => {
+                const selectors = [
+                    '[aria-busy="true"]',
+                    '[role="progressbar"]',
+                    '[class*="loading" i]',
+                    '[class*="spinner" i]',
+                    '[class*="skeleton" i]',
+                    '[class*="progress" i]',
+                    '[data-testid*="loading" i]',
+                    '[data-testid*="skeleton" i]'
+                ];
+
+                function visible(el) {
+                    const style = window.getComputedStyle(el);
+                    const r = el.getBoundingClientRect();
+                    return style.visibility !== 'hidden'
+                        && style.display !== 'none'
+                        && r.width > 8
+                        && r.height > 8;
+                }
+
+                const found = new Set();
+                for (const selector of selectors) {
+                    for (const el of document.querySelectorAll(selector)) {
+                        if (visible(el)) found.add(el);
+                    }
+                }
+
+                for (const el of document.querySelectorAll('body *')) {
+                    const text = (el.innerText || '').trim();
+                    if (/^(loading|loading\\.\\.\\.|please wait)$/i.test(text) && visible(el)) {
+                        found.add(el);
+                    }
+                }
+                return found.size;
+            }
+        """)
+    except Exception as e:
+        logger.debug(f"Could not evaluate loading indicators: {e}")
+        return 0
 
 
 async def _mark_scroll_container(page: Page) -> dict:
@@ -474,22 +703,148 @@ async def _frame_page_offset(frame) -> dict:
     }""")
 
 
+async def _collect_capture_boxes(
+    page: Page,
+    dashboard_view: bool,
+    warn_on_fallback: bool = True,
+) -> list[dict]:
+    if dashboard_view:
+        boxes = await _collect_dashboard_tile_boxes(page)
+        if boxes:
+            return boxes
+        if warn_on_fallback:
+            logger.warning("  Dashboard view tile detector found no tiles; trying chart detector")
+    return await _collect_chart_boxes(page)
+
+
+async def _collect_dashboard_tile_boxes(page: Page) -> list[dict]:
+    """Return one crop box per dashboard tile on collection-style dashboard views."""
+    snapshot: dict = await page.evaluate("""
+        () => {
+            const viewportW = window.innerWidth || 1920;
+            const viewportH = window.innerHeight || 1080;
+
+            function rectOf(el) {
+                const r = el.getBoundingClientRect();
+                return {
+                    left: r.left,
+                    top: r.top,
+                    width: r.width,
+                    height: r.height,
+                    right: r.right,
+                    bottom: r.bottom
+                };
+            }
+
+            function visible(el, r) {
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && r.width >= 260
+                    && r.height >= 140;
+            }
+
+            function classText(el) {
+                const cls = typeof el.className === 'string'
+                    ? el.className
+                    : (el.className && el.className.baseVal) || '';
+                return [
+                    cls,
+                    el.id || '',
+                    el.getAttribute('role') || '',
+                    el.getAttribute('data-testid') || '',
+                    el.getAttribute('aria-label') || ''
+                ].join(' ');
+            }
+
+            function hasTileContent(el) {
+                const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                return el.querySelector('svg, canvas, .ag-charts-canvas-container')
+                    || /\\bNo Results?\\b/i.test(text)
+                    || /(Total Cost|Cost History|Chart|\\$\\d)/i.test(text);
+            }
+
+            const candidates = [...document.querySelectorAll('div#styled-tile-dashboard')]
+                .map(el => ({el, r: rectOf(el)}))
+                .filter(item => visible(item.el, item.r) && hasTileContent(item.el))
+                .map(item => ({
+                    x: Math.max(0, item.r.left + window.scrollX),
+                    y: Math.max(0, item.r.top + window.scrollY),
+                    width: item.r.width,
+                    height: item.r.height,
+                    hasChart: !!item.el.querySelector('svg, canvas, .ag-charts-canvas-container'),
+                    noResults: /\\bNo Results?\\b/i.test(item.el.innerText || ''),
+                    signal: classText(item.el),
+                    text: (item.el.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 240)
+                }));
+
+            return {
+                viewportWidth: viewportW,
+                viewportHeight: viewportH,
+                candidates
+            };
+        }
+    """)
+
+    boxes = _filter_dashboard_tile_candidates(
+        snapshot.get("candidates", []),
+        int(snapshot.get("viewportWidth", 1920) or 1920),
+        int(snapshot.get("viewportHeight", 1080) or 1080),
+    )
+    logger.info(f"  Found {len(boxes)} dashboard tile boxes")
+    return boxes
+
+
+def _filter_dashboard_tile_candidates(
+    candidates: list[dict],
+    viewport_width: int = 1920,
+    viewport_height: int = 1080,
+) -> list[dict]:
+    valid = []
+    for candidate in candidates:
+        width = float(candidate.get("width", 0) or 0)
+        height = float(candidate.get("height", 0) or 0)
+        if width < 260 or height < 140:
+            continue
+        if width >= viewport_width * 0.98 and height >= viewport_height * 0.92:
+            continue
+
+        text = str(candidate.get("text", ""))
+        has_chart = bool(candidate.get("hasChart"))
+        no_results = bool(candidate.get("noResults"))
+        has_cost_signal = bool(re.search(r"(Total Cost|Cost History|Chart|\$\d)", text, re.IGNORECASE))
+        if not (has_chart or no_results or has_cost_signal):
+            continue
+
+        valid.append({
+            "x": float(candidate.get("x", 0) or 0),
+            "y": float(candidate.get("y", 0) or 0),
+            "width": width,
+            "height": height,
+            "hasChart": has_chart,
+            "noResults": no_results,
+            "dashboardTile": True,
+        })
+
+    valid.sort(key=lambda box: _box_area(box), reverse=True)
+    deduped = []
+    for candidate in valid:
+        if any(_box_iou(candidate, existing) > 0.82 for existing in deduped):
+            continue
+        deduped.append(candidate)
+
+    return sorted(deduped, key=lambda b: (b["y"], b["x"]))
+
+
 async def _collect_chart_boxes(page: Page) -> list[dict]:
     """
     Return de-duplicated bounding boxes of chart elements in document coordinates.
 
-    Uses SVG/canvas element detection and then climbs to the nearest single-chart
-    card/container so crops include titles and legends without swallowing adjacent
-    dashboard cards.
-
-    Strategy:
-    - Find large SVG/canvas chart roots.
-    - For each root, walk up ancestors while the candidate still contains only
-      that one large chart root.
-    - Prefer card-like wrappers and reject page-level containers.
-    - De-duplicate near-identical boxes using intersection-over-union.
+    Only real chart containers and valid "No results" panels are returned. Generic
+    cards, filter rows, nav bars, and KPI/header-only bands are intentionally
+    ignored unless they contain chart roots.
     """
-    boxes: list[dict] = await page.evaluate("""
+    snapshot: dict = await page.evaluate("""
         () => {
             const MIN_W = 180;
             const MIN_H = 120;
@@ -546,34 +901,94 @@ async def _collect_chart_boxes(page: Page) -> list[dict]:
                     el.id || '',
                     el.getAttribute('role') || '',
                     el.getAttribute('data-testid') || '',
-                    el.getAttribute('aria-label') || ''
+                    el.getAttribute('aria-label') || '',
+                    el.getAttribute('data-test') || ''
                 ].join(' ');
             }
 
             function isCardLike(el) {
-                return /(card|panel|paper|widget|tile|chart|graph|visual|dashboard-item|react-grid-item|grid-item|highcharts-container|recharts-wrapper|plotly|echarts|MuiPaper|chakra-card)/i
+                return /(card|panel|paper|widget|tile|chart|graph|visual|dashboard-item|react-grid-item|grid-item|highcharts-container|recharts-wrapper|plotly|echarts|ag-charts-canvas-container|MuiPaper|chakra-card|viz|sheet|view)/i
                     .test(classText(el));
             }
 
             function tooPageLike(r, rootRect) {
-                if (r.width >= viewportW * 0.98 && r.height >= viewportH * 0.80) return true;
+                if (r.width >= viewportW * 0.98 && r.height >= viewportH * 0.92) return true;
                 if (r.height > Math.max(rootRect.height * 3.5, rootRect.height + 520)) return true;
                 if (r.width > Math.max(rootRect.width * 3.0, rootRect.width + 720)) return true;
                 return false;
             }
 
-            function boxFromRect(r) {
+            function boxFromRect(r, extra = {}) {
                 return {
                     x: Math.max(0, r.left + window.scrollX),
                     y: Math.max(0, r.top + window.scrollY),
                     width: r.width,
-                    height: r.height
+                    height: r.height,
+                    ...extra
+                };
+            }
+
+            function horizontalOverlapRatio(a, b) {
+                const left = Math.max(a.left, b.left);
+                const right = Math.min(a.right, b.right);
+                const overlap = Math.max(0, right - left);
+                return overlap / Math.max(1, Math.min(a.width, b.width));
+            }
+
+            function isRelatedDataPanel(el, chartRect) {
+                const r = rectOf(el);
+                if (r.width < Math.max(320, chartRect.width * 0.55)) return false;
+                if (r.height < 80 || r.height > Math.max(900, chartRect.height * 2.5)) return false;
+                if (r.top < chartRect.bottom - 8) return false;
+                if (r.top - chartRect.bottom > 180) return false;
+                if (horizontalOverlapRatio(r, chartRect) < 0.55) return false;
+
+                const signal = classText(el);
+                const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                const tableLike =
+                    el.tagName === 'TABLE' ||
+                    /\\b(table|grid|ag-grid|data-grid|trend-table|dimension-elements|cost-table|ag-center-cols-container)\\b/i.test(signal) ||
+                    ['table', 'grid', 'rowgroup'].includes(el.getAttribute('role') || '');
+                const hasCostData = /(Total Cost|Cost of Change|% of Change|Dimension Elements|New Cost|\\$\\d)/i.test(text);
+                return tableLike && hasCostData;
+            }
+
+            function extendWithRelatedDataPanel(chartBox, root) {
+                const chartRect = {
+                    left: chartBox.x - window.scrollX,
+                    top: chartBox.y - window.scrollY,
+                    width: chartBox.width,
+                    height: chartBox.height,
+                    right: chartBox.x - window.scrollX + chartBox.width,
+                    bottom: chartBox.y - window.scrollY + chartBox.height
+                };
+                const searchRoot = root.closest('main, [role="main"], article') || document.body;
+                const panels = [...searchRoot.querySelectorAll(
+                    'table, [role="table"], [role="grid"], .ag-center-cols-container, [class*="table" i], [class*="grid" i]'
+                )].filter(el => isRelatedDataPanel(el, chartRect));
+
+                if (!panels.length) return chartBox;
+                panels.sort((a, b) => rectOf(a).top - rectOf(b).top);
+                const panelRect = rectOf(panels[0]);
+                const left = Math.min(chartRect.left, panelRect.left);
+                const top = Math.min(chartRect.top, panelRect.top);
+                const right = Math.max(chartRect.right, panelRect.right);
+                const bottom = Math.max(chartRect.bottom, panelRect.bottom);
+
+                return {
+                    ...chartBox,
+                    x: Math.max(0, left + window.scrollX),
+                    y: Math.max(0, top + window.scrollY),
+                    width: right - left,
+                    height: bottom - top,
+                    hasRelatedData: true
                 };
             }
 
             function chooseGraphContainer(root) {
                 const rootRect = rectOf(root);
-                let best = root;
+                const cloudZeroChart = root.closest('.ag-charts-canvas-container');
+                let best = cloudZeroChart || root;
                 let bestScore = 0;
 
                 for (let el = root; el && el.tagName !== 'BODY' && el.tagName !== 'HTML'; el = el.parentElement) {
@@ -588,6 +1003,11 @@ async def _collect_chart_boxes(page: Page) -> list[dict]:
                     const cardLike = isCardLike(el);
                     if (!cardLike && !hasUsefulWrapperSpace) continue;
 
+                    const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                    const controlsOnly = /(add filter|clear all|group by|time range|cost type)/i.test(text)
+                        && !largeChartRootsWithin(el).length;
+                    if (controlsOnly) continue;
+
                     const score =
                         (cardLike ? 1000 : 0) +
                         Math.min(400, Math.max(0, extraW)) +
@@ -600,100 +1020,177 @@ async def _collect_chart_boxes(page: Page) -> list[dict]:
                     }
                 }
 
-                return boxFromRect(rectOf(best));
+                const chartBox = boxFromRect(rectOf(best), {
+                    kind: 'chart',
+                    hasChart: true,
+                    noResults: false,
+                    signal: classText(best),
+                    text: (best.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 240)
+                });
+                return extendWithRelatedDataPanel(chartBox, best);
             }
 
             function isTooLargeForCard(r) {
                 return r.width >= viewportW * 0.98 && r.height >= viewportH * 0.92;
             }
 
-            function isDashboardTileSeed(el) {
+            function noResultsSeed(el) {
                 const r = rectOf(el);
-                if (r.width < 260 || r.height < 120 || isTooLargeForCard(r)) return false;
-
-                const signal = classText(el);
+                if (r.width < 220 || r.height < 80 || isTooLargeForCard(r)) return false;
                 const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
-                if (el.id === 'styled-tile-dashboard') return true;
-                if (/react-grid-item|Element__ElementCard|dashboard-tile|tile|vis-container/i.test(signal)) return true;
-                if (/No Results/i.test(el.getAttribute('aria-label') || '')) return true;
-                if (/No results/i.test(text) && r.width > 300 && r.height > 200) return true;
-                return false;
+                return /\\bNo Results?\\b/i.test(el.getAttribute('aria-label') || '')
+                    || /\\bNo results?\\b/i.test(text);
             }
 
-            function chooseDashboardTile(seed) {
+            function chooseNoResultsContainer(seed) {
                 let best = seed;
                 for (let el = seed; el && el.tagName !== 'BODY' && el.tagName !== 'HTML'; el = el.parentElement) {
                     const r = rectOf(el);
-                    if (r.width < 260 || r.height < 160 || isTooLargeForCard(r)) continue;
+                    if (r.width < 220 || r.height < 100 || isTooLargeForCard(r)) continue;
 
                     const signal = classText(el);
                     const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
-                    const looksLikeTile =
+                    const looksLikePanel =
                         el.id === 'styled-tile-dashboard' ||
-                        /react-grid-item|Element__ElementCard/i.test(signal) ||
-                        (/Card/i.test(signal) && (/Chart|No results|Tile actions/i.test(text)));
+                        /react-grid-item|Element__ElementCard|dashboard-tile|tile|panel|card|paper|widget/i.test(signal) ||
+                        (/No results?/i.test(text) && r.height <= 520);
 
-                    if (looksLikeTile) {
+                    if (looksLikePanel) {
                         best = el;
                         if (el.id === 'styled-tile-dashboard' || /react-grid-item/i.test(signal)) {
                             break;
                         }
                     }
                 }
-                return boxFromRect(rectOf(best));
+                return boxFromRect(rectOf(best), {
+                    kind: 'no-results',
+                    hasChart: false,
+                    noResults: true,
+                    signal: classText(best),
+                    text: (best.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 240)
+                });
             }
-
-            const dashboardCards = [...document.querySelectorAll('*')]
-                .filter(isDashboardTileSeed)
-                .map(chooseDashboardTile)
-                .filter(b => b.width >= 260 && b.height >= 160);
 
             const roots = [...document.querySelectorAll('svg, canvas')]
                 .filter(isLargeChartRoot);
 
+            const noResults = [...document.querySelectorAll('*')]
+                .filter(noResultsSeed)
+                .map(chooseNoResultsContainer);
+
             const candidates = [
-                ...dashboardCards,
                 ...roots.map(chooseGraphContainer),
-            ].filter(b => b.width >= MIN_W && b.height >= MIN_H);
+                ...noResults,
+            ].filter(b => b.width >= MIN_W && b.height >= 80);
 
-            function area(b) {
-                return b.width * b.height;
-            }
-
-            function iou(a, b) {
-                const left = Math.max(a.x, b.x);
-                const top = Math.max(a.y, b.y);
-                const right = Math.min(a.x + a.width, b.x + b.width);
-                const bottom = Math.min(a.y + a.height, b.y + b.height);
-                const intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
-                if (!intersection) return 0;
-                return intersection / (area(a) + area(b) - intersection);
-            }
-
-            candidates.sort((a, b) => area(b) - area(a));
-            const deduped = [];
-            for (const candidate of candidates) {
-                if (deduped.some(existing => iou(existing, candidate) > 0.82)) continue;
-                deduped.push(candidate);
-            }
-
-            function contains(outer, inner) {
-                return outer.x <= inner.x + 12 &&
-                    outer.y <= inner.y + 12 &&
-                    outer.x + outer.width >= inner.x + inner.width - 12 &&
-                    outer.y + outer.height >= inner.y + inner.height - 12;
-            }
-
-            const graphBoxes = deduped.filter(candidate =>
-                deduped.filter(other => other !== candidate && contains(candidate, other)).length < 2
-            );
-
-            return graphBoxes.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+            return {
+                viewportWidth: viewportW,
+                viewportHeight: viewportH,
+                candidates
+            };
         }
     """)
 
+    boxes = _filter_chart_box_candidates(
+        snapshot.get("candidates", []),
+        int(snapshot.get("viewportWidth", 1920) or 1920),
+        int(snapshot.get("viewportHeight", 1080) or 1080),
+    )
     logger.info(f"  Found {len(boxes)} chart bounding boxes")
     return boxes
+
+
+def _filter_chart_box_candidates(
+    candidates: list[dict],
+    viewport_width: int = 1920,
+    viewport_height: int = 1080,
+) -> list[dict]:
+    """Filter and de-duplicate raw DOM candidates into reliable chart crop boxes."""
+    valid = []
+    for candidate in candidates:
+        width = float(candidate.get("width", 0) or 0)
+        height = float(candidate.get("height", 0) or 0)
+        if width < 180 or height < 80:
+            continue
+        if width >= viewport_width * 0.98 and height >= viewport_height * 0.92:
+            continue
+
+        has_chart = bool(candidate.get("hasChart"))
+        no_results = bool(candidate.get("noResults"))
+        if not has_chart and not no_results:
+            continue
+
+        text = str(candidate.get("text", ""))
+        signal = str(candidate.get("signal", ""))
+        header_or_filter_only = (
+            not has_chart
+            and not no_results
+            and _looks_like_filter_or_header(text, signal)
+        )
+        if header_or_filter_only:
+            continue
+
+        valid.append({
+            "x": float(candidate.get("x", 0) or 0),
+            "y": float(candidate.get("y", 0) or 0),
+            "width": width,
+            "height": height,
+            "hasChart": has_chart,
+            "noResults": no_results,
+            "hasRelatedData": bool(candidate.get("hasRelatedData")),
+        })
+
+    valid.sort(key=lambda box: _box_area(box), reverse=True)
+    deduped = []
+    for candidate in valid:
+        if any(_box_iou(candidate, existing) > 0.82 for existing in deduped):
+            continue
+        deduped.append(candidate)
+
+    graph_boxes = [
+        candidate for candidate in deduped
+        if sum(
+            1 for other in deduped
+            if other is not candidate and _box_contains(candidate, other)
+        ) < 2
+    ]
+
+    return sorted(graph_boxes, key=lambda b: (b["y"], b["x"]))
+
+
+def _looks_like_filter_or_header(text: str, signal: str) -> bool:
+    combined = f"{text} {signal}"
+    return bool(
+        re.search(
+            r"(add filter|clear all|group by|time range|cost type|create insight|export|navbar|toolbar)",
+            combined,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _box_area(box: dict) -> float:
+    return float(box.get("width", 0) or 0) * float(box.get("height", 0) or 0)
+
+
+def _box_iou(a: dict, b: dict) -> float:
+    left = max(float(a["x"]), float(b["x"]))
+    top = max(float(a["y"]), float(b["y"]))
+    right = min(float(a["x"]) + float(a["width"]), float(b["x"]) + float(b["width"]))
+    bottom = min(float(a["y"]) + float(a["height"]), float(b["y"]) + float(b["height"]))
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    if intersection <= 0:
+        return 0.0
+    return intersection / (_box_area(a) + _box_area(b) - intersection)
+
+
+def _box_contains(outer: dict, inner: dict, tolerance: float = 12.0) -> bool:
+    return (
+        float(outer["x"]) <= float(inner["x"]) + tolerance
+        and float(outer["y"]) <= float(inner["y"]) + tolerance
+        and float(outer["x"]) + float(outer["width"]) >= float(inner["x"]) + float(inner["width"]) - tolerance
+        and float(outer["y"]) + float(outer["height"]) >= float(inner["y"]) + float(inner["height"]) - tolerance
+    )
 
 
 def _crop_graphs_from_full_page(
@@ -701,6 +1198,7 @@ def _crop_graphs_from_full_page(
     boxes: list[dict],
     output_dir: Path,
     padding: int = 8,
+    css_size: dict | None = None,
 ) -> list[Path]:
     """
     Crop each bounding box out of the full-page PNG.
@@ -709,7 +1207,8 @@ def _crop_graphs_from_full_page(
         full_page_path: Path to 000_full_page.png
         boxes: List of {x, y, width, height} dicts (document coordinates)
         output_dir: Directory to write cropped PNGs into
-        padding: Extra pixels added on each side of the crop (default 8)
+        padding: Extra CSS pixels added on each side of the crop (default 8)
+        css_size: Full-page CSS coordinate size used to scale into PNG pixels
 
     Returns:
         List of paths to the cropped PNG files, in top-to-bottom order.
@@ -719,16 +1218,20 @@ def _crop_graphs_from_full_page(
     except Exception as e:
         raise ScreenshotCaptureError(f"Failed to open full-page image {full_page_path}: {e}") from e
     img_w, img_h = img.size
+    css_w = max(1, int((css_size or {}).get("width") or img_w))
+    css_h = max(1, int((css_size or {}).get("height") or img_h))
+    scale_x = img_w / css_w
+    scale_y = img_h / css_h
 
     # Sort top-to-bottom so numbering matches visual order on the page
     sorted_boxes = sorted(boxes, key=lambda b: b["y"])
 
     crops: list[Path] = []
     for idx, b in enumerate(sorted_boxes, start=1):
-        left   = max(0, int(b["x"]) - padding)
-        top    = max(0, int(b["y"]) - padding)
-        right  = min(img_w, int(b["x"] + b["width"]) + padding)
-        bottom = min(img_h, int(b["y"] + b["height"]) + padding)
+        left = max(0, int((float(b["x"]) - padding) * scale_x))
+        top = max(0, int((float(b["y"]) - padding) * scale_y))
+        right = min(img_w, int((float(b["x"]) + float(b["width"]) + padding) * scale_x))
+        bottom = min(img_h, int((float(b["y"]) + float(b["height"]) + padding) * scale_y))
 
         if right <= left or bottom <= top:
             logger.warning(f"  ✗ Graph {idx}: degenerate crop box, skipping")

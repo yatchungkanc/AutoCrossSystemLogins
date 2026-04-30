@@ -10,12 +10,12 @@ This package is split by concern to keep authentication logic easy to extend and
   - Shared login helpers used across providers (Microsoft SSO flow, generic email login flow).
   - `authenticate_sso`: enters username and password on a Microsoft SSO page; skips if session is valid.
   - `handle_microsoft_account_picker`: selects the preferred account when Microsoft shows an account chooser.
-  - `run_email_login_strategy`: generic email-submit + SSO-redirect driver used by CloudHealth and CloudZero.
+  - `run_email_login_strategy`: generic email-submit + SSO-redirect driver used by CloudZero and similar providers.
   - `_wait_for_redirect_to_settle`: waits until the post-login URL stays on the expected domain long enough to confirm completion.
 - `ms_sso_services.py`
   - Provider logins that use Microsoft SSO-style authentication (Tableau, SSO, AI Pro, Power BI, Smartsheet).
 - `email_sso_services.py`
-  - Provider logins that begin with email submission and may continue through SSO redirects (CloudHealth, CloudZero, Atlassian).
+  - Provider logins that begin with email submission and may continue through SSO redirects (CloudZero, Atlassian).
 - `registry.py`
   - Strategy registry and `execute_auth_strategy()` dispatch function.
 - `__init__.py`

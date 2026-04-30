@@ -231,7 +231,7 @@ async def _dispatch_auth(
     return await execute_auth_strategy(auth_type, page, context, creds)
 
 
-async def run(chrome: str, filters: list[str] | None = None):
+async def run(chrome: str, filters: list[str] | None = None) -> bool:
     creds = load_credentials()
     dashboards = load_dashboards(filters)
 
@@ -317,6 +317,8 @@ async def run(chrome: str, filters: list[str] | None = None):
         for r in results:
             logger.info(f"  {'\u2713' if r['ok'] else '\u2717'} {r['name']}")
 
+        return bool(results) and ok_count == len(results)
+
     finally:
         # Disconnect without closing — browser stays alive
         if browser:
@@ -324,12 +326,13 @@ async def run(chrome: str, filters: list[str] | None = None):
         await pw.stop()
 
 
-def main(filters: list[str] | None = None):
+def main(filters: list[str] | None = None) -> bool:
     chrome = find_chromium()  # resolve before asyncio.run() — sync_playwright can't run inside an event loop
     if is_first_run():
         asyncio.run(run_setup(chrome))
+        return False
     else:
-        asyncio.run(run(chrome, filters))
+        return asyncio.run(run(chrome, filters))
 
 
 if __name__ == "__main__":

@@ -56,14 +56,13 @@ projectHotGates/
     │   │   ├── config.py              # Auth config dataclasses (EmailLoginConfig, AuthStrategySpec)
     │   │   ├── common.py              # Shared login helpers (MS SSO flow, email flow)
     │   │   ├── ms_sso_services.py     # MS SSO strategies: Tableau, SSO, AI Pro, PowerBI
-    │   │   ├── email_sso_services.py  # Email-submit strategies: CloudHealth, CloudZero, Atlassian
+    │   │   ├── email_sso_services.py  # Email-submit strategies: CloudZero, Atlassian
     │   │   ├── registry.py            # AUTH_STRATEGIES registry and execute_auth_strategy()
     │   │   └── strategies.py          # Compatibility facade
     │   ├── config/
     │   │   └── loader.py              # Loads credentials from .env
     │   ├── orchestrator.py            # Main browser session manager
     │   ├── graph_report.py            # Generic graph report agent
-    │   ├── cloudhealth_report.py      # Legacy CloudHealth report orchestrator
     │   ├── screenshot_capture.py      # Screenshot capture module
     │   ├── analysis.py                # Copilot CLI integration module
     │   └── report_generator.py        # HTML report generation module
@@ -104,6 +103,8 @@ python run.py                          # open all dashboards
 python run.py --list                   # list available dashboard groups
 python run.py graph-report --graph "Name=/path/to/graph.png"
 python run.py graph-report --graph "Name=https://dashboard.example/report"
+python run.py graph-report ops-metrics cloudzero-dashboard
+python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
 
 ### Manual installation
@@ -129,9 +130,6 @@ TABLEAU_EMAIL=<email>
 # Atlassian API token for JIRA access
 ATLASSIAN_EMAIL=<email>
 ATLASSIAN_API_TOKEN=<api_token>
-
-# CloudHealth (optional)
-CLOUDHEALTH_EMAIL=<email>
 
 # CloudZero (optional)
 CLOUDZERO_EMAIL=<email>
@@ -176,6 +174,8 @@ python run.py --list                         # list available dashboard groups
 python run.py <id-or-name> [<id-or-name>...] # open matching dashboard groups only
 python run.py graph-report --graph "Name=/path/to/graph.png"
 python run.py graph-report --graph "Name=https://dashboard.example/report"
+python run.py graph-report ops-metrics cloudzero-dashboard
+python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
 
 The agent will:
@@ -183,6 +183,8 @@ The agent will:
 2. Connect via CDP and authenticate (or skip if session is valid)
 3. Open all configured dashboards as tabs with progress logging
 4. Disconnect and exit — browser stays open for you to use
+
+When the requested launch includes both `ops-metrics` and `cloudzero-dashboard`, `run.py` automatically runs a graph report for those two groups after all requested tabs open successfully. If any requested tab fails to open, the automatic graph report is skipped.
 
 Example output:
 
@@ -207,7 +209,7 @@ Connected.
 
 ## Graph Report Generator
 
-The graph report generator analyzes one or more caller-provided graph image files or dashboard URLs with the Copilot CLI and produces a generic HTML report. Local image inputs go straight to analysis; URL inputs are opened in the existing Playwright browser session and captured into individual graph images before analysis.
+The graph report generator analyzes one or more caller-provided graph image files, dashboard URLs, or dashboard groups from `dashboards.yaml` with the Copilot CLI and produces a generic HTML report. Local image inputs go straight to analysis; URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
 
 ### Usage
 
@@ -217,9 +219,12 @@ python run.py graph-report \
   --graph "Budget Forecast=https://app.powerbi.com/groups/me/reports/..." \
   --focus "anomalies, trend changes" \
   --title "Weekly Graph Review"
+
+python run.py graph-report ops-metrics cloudzero-dashboard
+python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
 
-Each `--graph` value must use `Name=/path/to/image-or-url`. The graph name is what appears in the report and in the analysis tables; filenames are treated as internal implementation details. URL capture requires a running browser session from `python run.py`.
+Each `--graph` value must use `Name=/path/to/image-or-url`. The graph name is what appears in the report and in the analysis tables; filenames are treated as internal implementation details. Dashboard groups can be supplied as positional group filters or repeated `--group ID_OR_NAME` values. URL capture requires a running browser session from `python run.py`.
 
 ### Architecture & Modules
 
@@ -238,12 +243,22 @@ The report generator is split into reusable modules:
 ### Workflow
 
 1. **Validate Inputs**: Require at least one graph, non-empty unique graph names, and either existing local files or HTTP(S) URLs.
-2. **Capture URL Inputs**: Open each URL in the existing CDP browser session and crop visible SVG/canvas graphs into individual images.
+2. **Capture URL Inputs**: Reuse an already-open tab when the normalized URL matches; otherwise open a new tab in the existing CDP browser session. Crop reliable chart, dashboard tile, or no-results panels into individual images.
 3. **Analyze**: Invoke `copilot -p --allow-all-tools` with graph names and image paths.
 4. **Generate Report**: Convert Copilot markdown to HTML using the report template.
 5. **Copy Graph Assets**: Save graph images beside the report using stable sanitized filenames.
 
-**Fail-fast behavior**: if Copilot CLI is not installed, URL capture cannot connect to the browser, input validation fails, or analysis fails, the command exits with a clear error. No placeholder reports are generated.
+### URL Capture Details
+
+`screenshot_capture.py` is intentionally conservative. It waits for chart candidates to stabilize, avoids login pages and loading skeletons, and skips unreliable pages instead of analyzing header bars or filter rows as graphs.
+
+For direct chart URLs, the detector accepts real SVG/canvas chart containers and valid "No results" panels. For CloudZero Explorer, it recognizes `.ag-charts-canvas-container` and extends the crop to include the related `.ag-center-cols-container` data table below the chart when present.
+
+For dashboard collection URLs whose path ends in `/view`, the detector treats the page as a dashboard view. CloudZero embeds these dashboards in a frame, so readiness and capture inspect both the main page and frames. Each `div#styled-tile-dashboard` tile is captured as its own graph image, including tiles that intentionally show "No results".
+
+URL tab matching is normalized so already-open tabs are reused across exact matches, reordered query strings, harmless extra query parameters, and redirect/hash mutations such as Tableau `:iid` changes.
+
+If one URL source cannot produce reliable captures, it is logged and skipped while the remaining graphs continue to analysis. If all requested inputs fail or are skipped, `graph-report` exits with a clear `GraphInputError`. Browser connection failures, input validation failures, Copilot failures, and report generation failures still stop the command. No placeholder reports are generated.
 
 ### Prerequisites
 
@@ -322,7 +337,6 @@ Both formats can be mixed freely. Each URL becomes its own browser tab.
 | AI Pro | Azure AD → Microsoft SSO | AI Pro dashboards |
 | Power BI | Microsoft SSO | Power BI reports |
 | Smartsheet | Email entry → Microsoft SSO | Smartsheet dashboards and reports |
-| CloudHealth | Email submit → SSO redirect | CloudHealth cost dashboards |
 | CloudZero | Email submit → SSO redirect | CloudZero cost dashboards |
 
 ## Authentication
@@ -339,7 +353,6 @@ Defined in `src/auth/` (split across modules — see `src/auth/README.md`):
 | `login_aipro` | AI Pro → Azure AD button → Microsoft SSO → dismiss welcome |
 | `login_powerbi` | Power BI → Microsoft SSO |
 | `login_smartsheet` | Smartsheet email entry → Microsoft SSO; skips if already logged in or already on Microsoft login page |
-| `login_cloudhealth` | CloudHealth email submit → waits for full Broadcom SSO → Microsoft → CloudHealth redirect chain (up to 90 s) before closing tab |
 | `login_cloudzero` | CloudZero email submit → waits for SSO redirect chain to complete |
 
 All strategies check if login fields are visible before interacting. If the session is still valid, the step is skipped automatically.
@@ -413,6 +426,5 @@ Tests are in `tests/` and cover auth registry dispatch and login strategy logic.
 | Fire-and-forget | Script exits after opening all tabs; browser stays open for the manager |
 | Atlassian SSO with token fallback | Corporate Atlassian uses SSO redirect; API token is the non-interactive fallback |
 | Single `url` and `urls` list support | Flexible config — group related dashboards or list them individually |
-| Isolated auth windows per service | CloudHealth and Atlassian each open their own tab; all lingering tabs (SSO popups, redirects) are closed before the next service starts so logins don't overwrite each other |
-| `wait_for_url()` after CloudHealth submit | CloudHealth SSO chain goes via `access.broadcom.com` → Microsoft → back; awaited up to 90 s rather than a fixed sleep. Timeout failures are logged with the current URL instead of being swallowed silently. |
+| Isolated auth windows per service | Atlassian uses its own tab; lingering SSO popups or redirects are closed before the next service starts so logins don't overwrite each other |
 | `NODE_NO_WARNINGS=1` env var | Playwright spawns an internal Node.js server that emits DEP0169 warnings; setting this before the first `async_playwright()` call suppresses them cleanly |
