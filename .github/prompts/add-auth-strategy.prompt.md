@@ -22,7 +22,7 @@ Read all three files in full before writing anything.
 
 Follow these conventions exactly — no exceptions:
 
-- **Signature**: `async def login_<service>(page: Page, ...)` for browser-based flows, or `async def login_<service>(context: BrowserContext, ...)` when a new tab is needed (like `login_cloudhealth`, `login_atlassian`).
+- **Signature**: `async def login_<service>(page: Page, ...)` for browser-based flows, or `async def login_<service>(context: BrowserContext, ...)` when a new tab is needed (like `login_cloudzero`, `login_atlassian`).
 - **Session check first**: Before interacting, detect if already logged in (URL check or field visibility check with short timeout). Log `"→ Already logged in, skipping."` and return early.
 - **Logging**: Use `logger.info("  → <step description>...")` for every meaningful action. Log the final URL: `logger.info(f"  → Login flow ended on: {page.url}")`.
 - **`wait_for_load_state("load")`** — never `"networkidle"`.

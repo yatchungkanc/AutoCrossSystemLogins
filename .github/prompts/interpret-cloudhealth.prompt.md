@@ -1,11 +1,28 @@
 ---
-description: "Navigate to the CloudHealth dashboard, screenshot each graph, and interpret the results"
-argument-hint: "Optional: specific graph name or metric to focus on (e.g. 'cost by service', 'trend'). Leave blank for full report."
+description: "[DEPRECATED] CloudHealth functionality has been disabled. Use graph-report command instead."
+argument-hint: "This prompt is no longer active. CloudHealth integration was removed in favor of the generic graph-report workflow."
 agent: "agent"
-tools: ["mcp_microsoft_pla_browser_navigate", "mcp_microsoft_pla_browser_take_screenshot", "mcp_microsoft_pla_browser_snapshot", "mcp_microsoft_pla_browser_wait_for", "mcp_microsoft_pla_browser_scroll", "view_image", "read_file"]
+tools: []
 ---
 
-Read the CloudHealth dashboard and interpret all visible graphs. Focus area: **$ARGUMENTS** (if blank, report on everything).
+# DEPRECATED — CloudHealth Integration Disabled
+
+CloudHealth functionality has been disabled as of commit 0184abe.
+
+For graph analysis and reporting, use the generic **graph-report** command instead:
+
+```bash
+python run.py graph-report --graph "Name=/path/to/graph.png"
+python run.py graph-report --graph "Name=https://dashboard.example/view"
+```
+
+See [dashboard-agent/README.md](../../dashboard-agent/README.md#graph-report-generator) for full documentation.
+
+---
+
+## Original Prompt (for reference only)
+
+Navigate to the CloudHealth dashboard, screenshot each graph, and interpret the results
 
 **Interpretation Guidelines:**
 - Focus on **data-driven observations** with specific values and ranges

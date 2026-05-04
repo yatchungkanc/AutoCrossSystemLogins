@@ -54,4 +54,13 @@ dashboards:
     auth_type: cloudzero
     url: "https://app.cloudzero.com/analytics/dashboards/<dashboard-id>/view"
 
+  - id: smartsheet-dashboard
+    name: "Smartsheet"
+    auth_type: smartsheet
+    urls:
+      - name: "<Dashboard Name>"
+        url: "https://app.smartsheet.com/dashboards/<dashboard-id>"
+      - name: "<Report Name>"
+        url: "https://app.smartsheet.com/reports/<report-id>"
+
   # Add more dashboards below...

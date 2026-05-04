@@ -1,6 +1,6 @@
 # AutoCrossSystemLogins (Project HotGates)
 
-Browser automation CLI that logs into multiple internal dashboards (Tableau, SharePoint, JIRA, Azure, CloudZero) in a single persistent Chromium session using SSO/token-based authentication.
+Browser automation CLI that logs into multiple internal dashboards (Tableau, SharePoint, JIRA, Power BI, Smartsheet, CloudZero, Atlassian) in a single persistent Chromium session using SSO/token-based authentication.
 
 ## Quick Start
 

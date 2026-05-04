@@ -1,6 +1,6 @@
 ---
 description: "Add a new dashboard entry or URL to dashboards.yaml — no code changes needed"
-argument-hint: "Dashboard name, URL(s), and auth type (email_only, sso, atlassian, cloudhealth)"
+argument-hint: "Dashboard name, URL(s), and auth type (email_only, sso, atlassian, cloudzero, powerbi, smartsheet, aipro)"
 agent: "agent"
 tools: ["read_file", "replace_string_in_file"]
 ---
@@ -23,7 +23,7 @@ Read [dashboards.yaml](../../dashboard-agent/config/dashboards.yaml) in full bef
 ```yaml
   - id: <kebab-case-id>
     name: "<Human Readable Name>"
-    auth_type: <email_only|sso|atlassian|cloudhealth>
+    auth_type: <email_only|sso|atlassian|cloudzero|powerbi|smartsheet|aipro>
     url: "<https://...>"
 ```
 
@@ -31,7 +31,7 @@ Read [dashboards.yaml](../../dashboard-agent/config/dashboards.yaml) in full bef
 ```yaml
   - id: <kebab-case-id>
     name: "<Human Readable Name>"
-    auth_type: <email_only|sso|atlassian|cloudhealth>
+    auth_type: <email_only|sso|atlassian|cloudzero|powerbi|smartsheet|aipro>
     urls:
       - name: "<Tab Label>"
         url: "<https://...>"

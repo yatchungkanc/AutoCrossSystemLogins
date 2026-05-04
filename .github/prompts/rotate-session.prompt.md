@@ -42,7 +42,7 @@ Inform the user of the exact first-run sequence they need to complete:
    ```
 2. **A browser window will open.** The first login will trigger Microsoft device authentication — a browser prompt will appear asking to select a certificate or complete device auth.
 3. **Complete it manually** — the script waits. Do not close the browser or interrupt the process.
-4. **Each service (Tableau, SharePoint, JIRA, AI Pro, CloudHealth) will go through its login flow** in sequence. Some may require accepting "Stay signed in?" prompts.
+4. **Each service (Tableau, SharePoint, JIRA, AI Pro, Power BI, Smartsheet, CloudZero, Atlassian) will go through its login flow** in sequence. Some may require accepting "Stay signed in?" prompts.
 5. **Once all tabs are open**, the `.setup_complete` marker is written automatically. Future runs will be fully automated.
 
 ## Step 4 — Verify credentials are still valid
