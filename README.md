@@ -123,7 +123,7 @@ gh extension install github/gh-copilot
 The report workflow:
 1. Validates one or more `--graph "Name=/path/to/image-or-url"` or dashboard group inputs
 2. Captures individual graph images for any URL inputs using the screenshot utility
-3. Invokes `copilot -p` to analyze the graph images
+3. Assigns deterministic graph IDs (`G001`, `G002`, etc.) and invokes `copilot -p` to analyze the graph images
 4. Generates a timestamped HTML report in `dashboard-agent/output/`
 5. Copies graph images into a relative `<report>_graphs/` folder next to the report
 
@@ -150,14 +150,15 @@ python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 - Reuses an already-open tab when the normalized URL matches, including reordered or extra query parameters.
 - For CloudZero Explorer URLs, captures the chart plus the related data table below it when present.
 - For CloudZero dashboard `/view` URLs, captures each individual dashboard tile from the embedded dashboard frame using `div#styled-tile-dashboard`.
+- For the newer CloudZero layout, prioritizes `main[data-scroll-container="main"]` and recognizes Chakra UI table panels marked with `data-testid="table-root"`.
 - Skips a URL if no reliable chart or no-results tile can be captured; report generation continues with remaining valid inputs. If every requested URL is skipped, the command exits with a clear error.
 
 **Output**: A timestamped HTML page (`graph_report_<timestamp>.html`) with structured graph analysis and an executive summary.
 
-- **Graph Analysis** — per-graph findings keyed by caller-provided graph names, not filenames.
+- **Graph Analysis** — per-graph findings linked by generated Graph IDs, with caller-provided graph names displayed in the report.
 - **Executive Summary** — cross-graph patterns, largest movements, anomalies, data-quality notes, and recommended follow-up.
 
-All graph thumbnails are clickable — clicking opens a full-size lightbox overlay.
+All graph thumbnails are clickable — clicking opens a full-size lightbox overlay. The report generator uses exact Graph ID/name mappings only; it does not guess images from similar filenames.
 
 ## Prerequisites
 

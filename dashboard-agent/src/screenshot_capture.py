@@ -464,6 +464,21 @@ async def _mark_scroll_container(page: Page) -> dict:
             .querySelectorAll('[data-dashboard-agent-scroll-root="true"]')
             .forEach(el => el.removeAttribute('data-dashboard-agent-scroll-root'));
 
+        // First check for CloudZero next.cloudzero.com structure: main[data-scroll-container="main"]
+        const cloudZeroMain = document.querySelector('main[data-scroll-container="main"]');
+        if (cloudZeroMain) {
+            const rect = cloudZeroMain.getBoundingClientRect();
+            if (cloudZeroMain.scrollHeight > cloudZeroMain.clientHeight + 50 && rect.height > 200 && rect.width > 200) {
+                cloudZeroMain.setAttribute('data-dashboard-agent-scroll-root', 'true');
+                return {
+                    useDocument: false,
+                    scrollHeight: cloudZeroMain.scrollHeight,
+                    clientHeight: cloudZeroMain.clientHeight,
+                    selector: 'main[data-scroll-container="main"]'
+                };
+            }
+        }
+
         const candidates = [...document.querySelectorAll('*')].filter(el => {
             const style = window.getComputedStyle(el);
             const ov = style.overflow + ' ' + style.overflowY;
@@ -945,8 +960,10 @@ async def _collect_chart_boxes(page: Page) -> list[dict]:
 
                 const signal = classText(el);
                 const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                const testId = el.getAttribute('data-testid') || '';
                 const tableLike =
                     el.tagName === 'TABLE' ||
+                    testId === 'table-root' ||
                     /\\b(table|grid|ag-grid|data-grid|trend-table|dimension-elements|cost-table|ag-center-cols-container)\\b/i.test(signal) ||
                     ['table', 'grid', 'rowgroup'].includes(el.getAttribute('role') || '');
                 const hasCostData = /(Total Cost|Cost of Change|% of Change|Dimension Elements|New Cost|\\$\\d)/i.test(text);
@@ -964,7 +981,7 @@ async def _collect_chart_boxes(page: Page) -> list[dict]:
                 };
                 const searchRoot = root.closest('main, [role="main"], article') || document.body;
                 const panels = [...searchRoot.querySelectorAll(
-                    'table, [role="table"], [role="grid"], .ag-center-cols-container, [class*="table" i], [class*="grid" i]'
+                    'table, [role="table"], [role="grid"], .ag-center-cols-container, [data-testid="table-root"], [class*="table" i], [class*="grid" i]'
                 )].filter(el => isRelatedDataPanel(el, chartRect));
 
                 if (!panels.length) return chartBox;

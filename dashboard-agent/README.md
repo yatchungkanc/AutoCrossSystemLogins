@@ -224,7 +224,7 @@ python run.py graph-report ops-metrics cloudzero-dashboard
 python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
 
-Each `--graph` value must use `Name=/path/to/image-or-url`. The graph name is what appears in the report and in the analysis tables; filenames are treated as internal implementation details. Dashboard groups can be supplied as positional group filters or repeated `--group ID_OR_NAME` values. URL capture requires a running browser session from `python run.py`.
+Each `--graph` value must use `Name=/path/to/image-or-url`. The graph name is the friendly label shown in the report; filenames are treated as internal implementation details. During analysis, each resolved graph also gets a deterministic ID such as `G001` or `G002`, and Copilot is instructed to use those IDs in the markdown table so report thumbnails can be linked exactly. Dashboard groups can be supplied as positional group filters or repeated `--group ID_OR_NAME` values. URL capture requires a running browser session from `python run.py`.
 
 ### Architecture & Modules
 
@@ -232,7 +232,7 @@ The report generator is split into reusable modules:
 
 1. **`graph_report.py`**: Generic CLI orchestration, URL capture, and report workflow
 2. **`graph_inputs.py`**: Named graph input parsing and validation
-3. **`analysis.py`**: Copilot CLI integration and prompt construction
+3. **`analysis.py`**: Copilot CLI integration and prompt construction, including Graph ID assignment
 4. **`screenshot_capture.py`**: URL page capture and individual graph cropping
 5. **`report_generator.py`**: HTML generation, graph image copying, thumbnail/lightbox rendering
 
@@ -244,8 +244,8 @@ The report generator is split into reusable modules:
 
 1. **Validate Inputs**: Require at least one graph, non-empty unique graph names, and either existing local files or HTTP(S) URLs.
 2. **Capture URL Inputs**: Reuse an already-open tab when the normalized URL matches; otherwise open a new tab in the existing CDP browser session. Crop reliable chart, dashboard tile, or no-results panels into individual images.
-3. **Analyze**: Invoke `copilot -p --allow-all-tools` with graph names and image paths.
-4. **Generate Report**: Convert Copilot markdown to HTML using the report template.
+3. **Analyze**: Invoke `copilot -p --allow-all-tools` with Graph IDs, graph names, and image paths.
+4. **Generate Report**: Convert Copilot markdown to HTML using the report template and exact Graph ID mappings.
 5. **Copy Graph Assets**: Save graph images beside the report using stable sanitized filenames.
 
 ### URL Capture Details
@@ -254,7 +254,7 @@ The report generator is split into reusable modules:
 
 For direct chart URLs, the detector accepts real SVG/canvas chart containers and valid "No results" panels. For CloudZero Explorer, it recognizes `.ag-charts-canvas-container` and extends the crop to include the related `.ag-center-cols-container` data table below the chart when present.
 
-For dashboard collection URLs whose path ends in `/view`, the detector treats the page as a dashboard view. CloudZero embeds these dashboards in a frame, so readiness and capture inspect both the main page and frames. Each `div#styled-tile-dashboard` tile is captured as its own graph image, including tiles that intentionally show "No results".
+For dashboard collection URLs whose path ends in `/view`, the detector treats the page as a dashboard view. CloudZero embeds these dashboards in a frame, so readiness and capture inspect both the main page and frames. Each `div#styled-tile-dashboard` tile is captured as its own graph image, including tiles that intentionally show "No results". The newer CloudZero layout is also supported by prioritizing `main[data-scroll-container="main"]` and recognizing Chakra UI table panels marked with `data-testid="table-root"`.
 
 URL tab matching is normalized so already-open tabs are reused across exact matches, reordered query strings, harmless extra query parameters, and redirect/hash mutations such as Tableau `:iid` changes.
 
@@ -291,9 +291,11 @@ dashboard-agent/
 
 The generated HTML report includes:
 - **Report metadata**: title, generation timestamp, graph count
-- **Graph Analysis**: tables keyed by caller-provided graph names
+- **Graph Analysis**: tables linked by generated Graph IDs and displayed with caller-provided graph names
 - **Executive Summary**: cross-graph patterns, anomalies, data-quality notes, and actions
 - **Clickable thumbnails**: each graph opens in a full-size lightbox overlay
+
+Graph image embedding is deterministic: the report generator uses exact Graph ID/name mappings and does not choose images through fuzzy filename matching. If Copilot returns an unknown Graph value, the report shows that value as text and logs a warning instead of silently attaching the wrong thumbnail.
 
 Report styling and wording are customizable via `config/report_template.html` and `config/prompts.yaml`.
 
@@ -428,3 +430,4 @@ Tests are in `tests/` and cover auth registry dispatch and login strategy logic.
 | Single `url` and `urls` list support | Flexible config — group related dashboards or list them individually |
 | Isolated auth windows per service | Atlassian uses its own tab; lingering SSO popups or redirects are closed before the next service starts so logins don't overwrite each other |
 | `NODE_NO_WARNINGS=1` env var | Playwright spawns an internal Node.js server that emits DEP0169 warnings; setting this before the first `async_playwright()` call suppresses them cleanly |
+| Graph IDs for report linking | Analysis rows link to images by deterministic IDs, avoiding filename guessing after analysis |

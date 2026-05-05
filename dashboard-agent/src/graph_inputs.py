@@ -15,6 +15,12 @@ class GraphInput:
 
     name: str
     path: Path
+    graph_id: str | None = None
+
+
+def graph_analysis_id(graph: GraphInput, index: int) -> str:
+    """Return the stable identifier used to tie analysis rows to graph images."""
+    return graph.graph_id or f"G{index:03d}"
 
 
 @dataclass(frozen=True)

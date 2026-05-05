@@ -21,6 +21,20 @@ This package is split by concern to keep authentication logic easy to extend and
 - `__init__.py`
   - Package-level public API export for `execute_auth_strategy()`.
 
+## Supported `auth_type` Values
+
+These values are used in `dashboard-agent/config/dashboards.yaml` and dispatched through `AUTH_STRATEGIES`:
+
+| `auth_type` | Strategy | Required credentials |
+|---|---|---|
+| `email_only` | Tableau email entry followed by Microsoft SSO | `TABLEAU_EMAIL`, `SSO_USERNAME`, `SSO_PASSWORD` |
+| `sso` | Direct Microsoft SSO | `SSO_USERNAME`, `SSO_PASSWORD` |
+| `aipro` | AI Pro Azure AD flow | `SSO_USERNAME`, `SSO_PASSWORD` |
+| `powerbi` | Power BI Microsoft SSO | `SSO_USERNAME`, `SSO_PASSWORD` |
+| `smartsheet` | Smartsheet email entry followed by Microsoft SSO | Shared email credential, `SSO_USERNAME`, `SSO_PASSWORD` |
+| `cloudzero` | CloudZero email submit followed by SSO redirect | `CLOUDZERO_EMAIL` |
+| `atlassian` | Atlassian email submit with SSO/API-token fallback | `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` |
+
 ## Import Guidance
 
 - Preferred orchestrator import:

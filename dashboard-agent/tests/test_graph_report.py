@@ -98,6 +98,7 @@ class GraphAnalysisPromptTests(unittest.TestCase):
             ["variance"],
         )
 
+        self.assertIn("Graph ID: G001", prompt)
         self.assertIn("Graph name: Budget Forecast", prompt)
         self.assertIn("Image path: /tmp/budget.png", prompt)
         self.assertIn("Focus area: variance", prompt)
@@ -140,6 +141,52 @@ class GraphReportGenerationTests(unittest.TestCase):
             self.assertIn("<div>1</div>", html)
             self.assertIn(">Budget Forecast</span>", html)
             self.assertNotIn(">source-file.png</span>", html)
+
+    def test_report_embeds_by_graph_id_without_filename_guessing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            all_products = tmp_path / "all.png"
+            product_a = tmp_path / "product-a.png"
+            all_products.write_text("all")
+            product_a.write_text("a")
+            template_path = tmp_path / "template.html"
+            output_path = tmp_path / "graph_report.html"
+            template_path.write_text(
+                "<h1>{{report_name}}</h1>"
+                "<div>{{graph_count}}</div>"
+                "<main>{{content}}</main>"
+            )
+
+            generate_html_report(
+                template_path,
+                "\n".join([
+                    "### Graph Analysis",
+                    "",
+                    "| Graph | Scope / Time Range | Key Values | Trend | Observations |",
+                    "|---|---|---|---|---|",
+                    "| G002 | Q1 | 42 | increasing | [INFO] visible |",
+                    "| Product | Q1 | N/A | N/A | [INFO] unmatched label |",
+                    "",
+                    "### Executive Summary",
+                    "",
+                    "| Category | Finding | Severity |",
+                    "|---|---|---|",
+                    "| Overall Pattern | Stable | [INFO] |",
+                ]),
+                {"title": "Finance Review"},
+                output_path,
+                graph_inputs=[
+                    GraphInput(name="All Products", path=all_products),
+                    GraphInput(name="Product A", path=product_a),
+                ],
+            )
+
+            html = output_path.read_text()
+
+            self.assertIn('src="graph_report_graphs/002_Product_A.png"', html)
+            self.assertIn(">Product A</span>", html)
+            self.assertIn(">Product</span>", html)
+            self.assertEqual(html.count("graph-thumb"), 1)
 
 
 class GraphReportAgentTests(unittest.IsolatedAsyncioTestCase):

@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 import yaml
 
-from src.graph_inputs import GraphInput
+from src.graph_inputs import GraphInput, graph_analysis_id
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +83,10 @@ def build_analysis_prompt(
     )
 
     graph_list = "\n".join(
-        f"    - Graph name: {graph.name}\n"
+        f"    - Graph ID: {graph_analysis_id(graph, idx)}\n"
+        f"      Graph name: {graph.name}\n"
         f"      Image path: {graph.path}"
-        for graph in graphs
+        for idx, graph in enumerate(graphs, start=1)
     )
 
     # Build complete prompt - template variables match prompts.yaml placeholders

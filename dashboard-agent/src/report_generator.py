@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from src.graph_inputs import GraphInput
+from src.graph_inputs import GraphInput, graph_analysis_id
 
 logger = logging.getLogger(__name__)
 
@@ -50,20 +50,29 @@ def _sanitize_graph_filename(name: str, suffix: str) -> str:
     return f"{slug}{suffix}"
 
 
-def _copy_graph_images(graphs: list[GraphInput], graphs_dir: Path) -> dict[str, str]:
+GraphImageMap = dict[str, tuple[str, str]]
+
+
+def _copy_graph_images(graphs: list[GraphInput], graphs_dir: Path) -> GraphImageMap:
     """
     Copy graph images to the report assets directory with stable sanitized names.
 
-    Returns a display-name-to-copied-filename mapping used when rendering tables.
+    Returns an exact label-to-(copied filename, display name) mapping.
     """
-    image_map: dict[str, str] = {}
+    image_map: GraphImageMap = {}
     for idx, graph in enumerate(graphs, start=1):
         suffix = graph.path.suffix or ".png"
         filename = f"{idx:03d}_{_sanitize_graph_filename(graph.name, suffix)}"
         shutil.copy2(graph.path, graphs_dir / filename)
-        image_map[graph.name] = filename
-        image_map[filename] = filename
-        image_map[graph.path.name] = filename
+
+        graph_id = graph_analysis_id(graph, idx)
+        mapping = (filename, graph.name)
+        for key in {graph_id, graph.name, filename, graph.path.name}:
+            image_map[key] = mapping
+            image_map[key.casefold()] = mapping
+
+        logger.debug(f"Copied graph {idx}: '{graph.name}' -> {filename}")
+
     return image_map
 
 
@@ -71,7 +80,7 @@ def _embed_image(
     graph_label: str,
     graphs_dir: Path,
     rel_dir_name: str,
-    graph_image_map: dict[str, str] | None = None,
+    graph_image_map: GraphImageMap | None = None,
 ) -> str:
     """
     Return an <img> tag referencing a graph image via a relative path.
@@ -80,21 +89,26 @@ def _embed_image(
     """
     # Strip backtick/code formatting Copilot sometimes wraps graph names with
     clean_label = graph_label.strip().strip("`")
-    mapped_filename = graph_image_map.get(clean_label) if graph_image_map else None
-    img_path = graphs_dir / mapped_filename if mapped_filename else graphs_dir / clean_label
-    if not img_path.exists():
-        # Fuzzy match: Copilot may have truncated or altered the label
-        matches = sorted(graphs_dir.glob(f"*{Path(clean_label).stem}*"))
-        img_path = matches[0] if matches else None
+
+    mapped = None
+    if graph_image_map:
+        mapped = graph_image_map.get(clean_label)
+        if mapped is None:
+            mapped = graph_image_map.get(clean_label.casefold())
+
+    mapped_filename, display_label = mapped if mapped else (None, clean_label)
+    img_path = graphs_dir / mapped_filename if mapped_filename else None
 
     if img_path and img_path.exists():
         rel_src = f"{rel_dir_name}/{img_path.name}"
-        escaped_label = html.escape(clean_label)
+        escaped_label = html.escape(display_label)
         escaped_src = html.escape(rel_src, quote=True)
         return (
             f'<img src="{escaped_src}" class="graph-thumb" alt="{escaped_label}">'
             f'<span class="graph-filename">{escaped_label}</span>'
         )
+
+    logger.warning("No exact graph image mapping for analysis label: '%s'", clean_label)
     return f'<span class="graph-filename">{html.escape(clean_label)}</span>'
 
 
@@ -102,7 +116,7 @@ def _render_markdown_table(
     block: str,
     graphs_dir: Path | None = None,
     rel_dir_name: str = "",
-    graph_image_map: dict[str, str] | None = None,
+    graph_image_map: GraphImageMap | None = None,
 ) -> str:
     """
     Convert a GFM markdown table block into an HTML <table>.
@@ -122,12 +136,28 @@ def _render_markdown_table(
 
     header_cells = split_row(rows[0])
     body_rows = [split_row(r) for r in rows[2:]]  # skip separator row
+    is_graph_table = (
+        bool(header_cells)
+        and header_cells[0].strip().casefold() in {"graph", "graph id"}
+    )
 
     # Pad / trim every row to the header column count
     for i, row in enumerate(body_rows):
         while len(row) < len(header_cells):
             row.append("")
         body_rows[i] = row[:len(header_cells)]
+
+    if not is_graph_table:
+        thead = "<tr>" + "".join(f"<th>{c}</th>" for c in header_cells) + "</tr>"
+        tbody = "".join(
+            "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
+            for row in body_rows
+        )
+        return (
+            '<div class="table-wrapper">'
+            f"<table><thead>{thead}</thead><tbody>{tbody}</tbody></table>"
+            "</div>"
+        )
 
     # Compute rowspan values for the first (Graph) column.
     # rowspan_info[i] == N  → this row starts a group of N rows (emit <td rowspan=N>)
@@ -179,7 +209,7 @@ def markdown_to_html(
     markdown_text: str,
     graphs_dir: Path | None = None,
     rel_dir_name: str = "",
-    graph_image_map: dict[str, str] | None = None,
+    graph_image_map: GraphImageMap | None = None,
 ) -> str:
     """
     Convert markdown to HTML.
@@ -189,7 +219,7 @@ def markdown_to_html(
         markdown_text: Raw markdown text from Copilot
         graphs_dir: Directory containing the saved graph image files
         rel_dir_name: Relative directory name used in <img src> attributes
-        graph_image_map: Map of graph display names to copied graph filenames
+        graph_image_map: Exact map of graph IDs/names to copied graph filenames
     """
     table_placeholder = "\x00TABLE{}\x00"
     table_blocks: list[str] = []

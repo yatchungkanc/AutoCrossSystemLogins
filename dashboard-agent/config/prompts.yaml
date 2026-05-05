@@ -16,27 +16,27 @@ analysis_prompt:
 
     Graphs: {graph_count} image(s)
 
-    Graphs to analyze. Use these EXACT graph names in the Graph column and do not invent names:
+    Graphs to analyze. Use these EXACT graph IDs in the Graph column and do not invent IDs:
     {graph_list}
 
     {focus_instruction}
 
     Read every image path listed above. Each file contains one graph or chart.
-    For each graph, produce analysis using the exact graph name supplied above.
+    For each graph, produce analysis using the exact Graph ID supplied above.
 
     ---
 
     ## Output Structure
 
     For every graph, add one or more rows to this table.
-    IMPORTANT: use the EXACT graph name from the list above in the "Graph" column.
-    Multiple findings from the same graph MUST share the EXACT same graph name so they are grouped together.
+    IMPORTANT: use the EXACT Graph ID from the list above in the "Graph" column.
+    Multiple findings from the same graph MUST share the EXACT same Graph ID so they are grouped together.
 
     ### Graph Analysis
 
     | Graph | Scope / Time Range | Key Values | Trend | Observations |
     |---|---|---|---|---|
-    | [exact graph name] | [series/category scope and dates if visible] | [specific values, ranges, percentages, or N/A] | [increase/decrease/stable/N/A] | [anomalies, patterns, limitations, severity indicator] |
+    | [exact Graph ID] | [series/category scope and dates if visible] | [specific values, ranges, percentages, or N/A] | [increase/decrease/stable/N/A] | [anomalies, patterns, limitations, severity indicator] |
 
     After all graph tables, produce:
 
@@ -58,8 +58,8 @@ analysis_prompt:
 
     ## Rules:
     - Start your response with the first `###` or `##` heading — NO introductory text before it
-    - In the Graph column, use the EXACT graph name from the list above — no backticks, no filenames unless the graph name itself is a filename
-    - Findings from the same graph MUST use the exact same graph name so they group correctly
+    - In the Graph column, use the EXACT Graph ID from the list above — no backticks, no display names, no filenames
+    - Findings from the same graph MUST use the exact same Graph ID so they group correctly
     - Provide SPECIFIC values, percentages, labels, and date ranges extracted from the visible data
     - Do NOT describe chart types (bar, line, pie) — describe the DATA
     - Use severity indicators in Observations: 🔴 Critical | ⚠️ Warning | ✅ Positive
