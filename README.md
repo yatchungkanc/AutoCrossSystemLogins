@@ -10,7 +10,7 @@ Browser automation CLI that logs into multiple internal dashboards (Tableau, Sha
 ./setup.sh
 ```
 
-This creates a `.venv`, installs all dependencies, downloads the Playwright-managed Chromium binary, and copies `.env.example` → `.env`.
+This uses the Python environment selected by `.python-version` when pyenv is available, falls back to `.venv` otherwise, installs all dependencies, downloads the Playwright-managed Chromium binary, and copies `.env.example` → `.env`.
 
 ### 2. Configure credentials
 
@@ -65,7 +65,6 @@ Each entry requires:
 ### 4. First run (one-time manual setup)
 
 ```bash
-source .venv/bin/activate
 python run.py
 ```
 
@@ -81,8 +80,6 @@ python run.py
 ## Usage
 
 ```bash
-source .venv/bin/activate
-
 python run.py                                      # Open all dashboards
 python run.py --list                               # List available dashboard groups
 python run.py <id-or-name> [<id-or-name> ...]      # Open matching dashboard groups only
@@ -112,7 +109,7 @@ Run `python run.py --list` to see all available group IDs and names.
 
 ### Graph report
 
-Analyzes one or more local graph image files, dashboard URLs, or dashboard groups from `dashboards.yaml` and generates a generic HTML report. Local image inputs go straight to analysis; URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
+Replaces the earlier CloudHealth-specific report flow. `graph-report` analyzes one or more local graph image files, dashboard URLs, or dashboard groups from `dashboards.yaml` and generates a generic HTML report. Local image inputs go straight to analysis; URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
 
 Requires the GitHub Copilot CLI to be installed:
 
@@ -159,6 +156,22 @@ python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 - **Executive Summary** — cross-graph patterns, largest movements, anomalies, data-quality notes, and recommended follow-up.
 
 All graph thumbnails are clickable — clicking opens a full-size lightbox overlay. The report generator uses exact Graph ID/name mappings only; it does not guess images from similar filenames.
+
+#### Sample generated report
+
+The sample report at [dashboard-agent/output/graph_report_20260505_175623.html](dashboard-agent/output/graph_report_20260505_175623.html) shows the current graph-report format using 13 CloudZero captures stored beside it in [dashboard-agent/output/graph_report_20260505_175623_graphs/](dashboard-agent/output/graph_report_20260505_175623_graphs/).
+
+![Sample graph-report HTML showing analyzed graphs and analysis results](docs/images/graph_report_20260505_175623_preview.png)
+
+That report demonstrates the final output structure:
+- **Graph Analysis** — one table row per captured image, with the graph thumbnail, scope/time range, key values, trend, and observations.
+- **Executive Summary** — cross-graph findings such as overall spend patterns, largest movements, critical anomalies, data-quality notes, and recommended actions.
+- **Relative graph assets** — each thumbnail is loaded from the sibling `graph_report_20260505_175623_graphs/` folder, so the HTML can be moved with its asset folder and still render correctly.
+
+Example findings from the sample:
+- The RDP product portfolio showed elevated spend in the last 10 days of the reviewed period, with portfolio-wide daily spend rising from about `$981` on `04/05` to about `$2,460` on `05/02`.
+- `G011` identified the largest movement: `aws-rt-dataconfidential-nonprod` in `rdp-consumption`, up `273%` and about `$14,860.25` over 30 days, with a single-day peak of about `$3.03K` on `04/15`.
+- The data-quality section confirmed all 13 images were readable and flagged one misleading duplicate label where a broader all-products view was captured.
 
 ## Prerequisites
 
