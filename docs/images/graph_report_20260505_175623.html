@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Analysis Report - 2026-05-05 17:56:23</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #24292f;
+            background: #f6f8fa;
+            padding: 2rem;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 3rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+        }
+        
+        header {
+            border-bottom: 3px solid #0969da;
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        h1 {
+            color: #0969da;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .meta {
+            color: #57606a;
+            font-size: 0.9rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 0.5rem;
+        }
+        
+        .meta-item {
+            padding: 0.25rem 0;
+        }
+        
+        .meta-label {
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+        
+        h2 {
+            color: #1f2328;
+            font-size: 1.75rem;
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #d0d7de;
+        }
+        
+        h3 {
+            color: #1f2328;
+            font-size: 1.4rem;
+            margin: 1.5rem 0 0.75rem;
+        }
+        
+        h4 {
+            color: #57606a;
+            font-size: 1.1rem;
+            margin: 1rem 0 0.5rem;
+        }
+        
+        p {
+            margin-bottom: 1rem;
+        }
+        
+        ul, ol {
+            margin: 1rem 0 1rem 2rem;
+        }
+        
+        li {
+            margin-bottom: 0.5rem;
+        }
+        
+        code {
+            background: #f6f8fa;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.9em;
+        }
+        
+        pre {
+            background: #f6f8fa;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        pre code {
+            padding: 0;
+            background: none;
+        }
+        
+        .alert {
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+            border-left: 4px solid;
+        }
+        
+        .alert.critical {
+            background: #ffebe9;
+            border-color: #cf222e;
+        }
+        
+        .alert.warning {
+            background: #fff8c5;
+            border-color: #bf8700;
+        }
+        
+        .alert.info {
+            background: #ddf4ff;
+            border-color: #0969da;
+        }
+        
+        .alert.positive {
+            background: #dafbe1;
+            border-color: #1a7f37;
+        }
+        
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin: 1rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0 2rem;
+            font-size: 0.9rem;
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            margin: 1rem 0 2rem;
+            border-radius: 6px;
+            border: 1px solid #d0d7de;
+        }
+        
+        .table-wrapper table {
+            margin: 0;
+            border: none;
+        }
+        
+        th, td {
+            padding: 0.65rem 0.9rem;
+            text-align: left;
+            border-bottom: 1px solid #d0d7de;
+            vertical-align: top;
+        }
+        
+        th {
+            background: #f6f8fa;
+            font-weight: 600;
+            white-space: nowrap;
+            border-bottom: 2px solid #d0d7de;
+        }
+        
+        /* First column (Graph name) — narrower, monospace */
+        td:first-child {
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.8rem;
+            color: #57606a;
+            white-space: nowrap;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* Graph cell: contains image + display name, vertically centered */
+        .graph-cell {
+            width: 200px;
+            min-width: 160px;
+            max-width: 220px;
+            text-align: center;
+            vertical-align: middle;
+            padding: 0.5rem;
+            background: #f6f8fa;
+            white-space: normal;
+        }
+
+        .graph-thumb {
+            width: 190px;
+            height: auto;
+            display: block;
+            margin: 0 auto 0.4rem;
+            border-radius: 4px;
+            border: 1px solid #d0d7de;
+            cursor: zoom-in;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .graph-thumb:hover {
+            transform: scale(1.04);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+        }
+
+        /* ── Lightbox ──────────────────────────────────────────────── */
+        #lightbox {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.82);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            cursor: zoom-out;
+        }
+        #lightbox.open { display: flex; }
+
+        #lightbox img {
+            max-width: 92vw;
+            max-height: 92vh;
+            border-radius: 8px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+            margin: 0;
+            cursor: default;
+            object-fit: contain;
+        }
+
+        #lightbox-close {
+            position: fixed;
+            top: 1rem;
+            right: 1.4rem;
+            font-size: 2rem;
+            color: #fff;
+            background: none;
+            border: none;
+            cursor: pointer;
+            line-height: 1;
+            opacity: 0.8;
+        }
+        #lightbox-close:hover { opacity: 1; }
+
+        #lightbox-caption {
+            position: fixed;
+            bottom: 1.2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #e6edf3;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.8rem;
+            background: rgba(0,0,0,0.55);
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .graph-filename {
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.7rem;
+            color: #57606a;
+            display: block;
+            word-break: break-all;
+        }
+        
+        /* Observations column — wider, allow wrap */
+        td:last-child {
+            min-width: 220px;
+        }
+        
+        tbody tr:nth-child(even) {
+            background: #f6f8fa;
+        }
+        
+        tbody tr:hover {
+            background: #eaf2fd;
+        }
+        
+        .footer {
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #d0d7de;
+            color: #57606a;
+            font-size: 0.875rem;
+            text-align: center;
+        }
+        
+        .progress-indicator {
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+        
+        .success { color: #1a7f37; }
+        .error { color: #cf222e; }
+        .warning { color: #bf8700; }
+        
+        blockquote {
+            border-left: 4px solid #d0d7de;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            color: #57606a;
+            font-style: italic;
+        }
+        
+        hr {
+            border: none;
+            border-top: 1px solid #d0d7de;
+            margin: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Graph Analysis Report</h1>
+            <div class="meta">
+                <div class="meta-item">
+                    <span class="meta-label">Generated:</span>
+                    <span>2026-05-05 17:56:23</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Report:</span>
+                    <span>Graph Analysis Report</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Graphs:</span>
+                    <span>13</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Source:</span>
+                    <span>Project HotGates Dashboard Agent</span>
+                </div>
+            </div>
+        </header>
+        <main>
+<h3>Graph Analysis Report</h3>
+<strong>Captured:</strong> 2026-05-05 17:51:37
+<h3>Graph Analysis</h3>
+<div class="table-wrapper"><table><thead><tr><th>Graph</th><th>Scope / Time Range</th><th>Key Values</th><th>Trend</th><th>Observations</th></tr></thead><tbody><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/001_cloudzero-dashboard_AccountName_Service_Cost_Centers_Works_Document_Data_Foundations_Product_rdp-works_Services_S3_RDS_EFS_Last_30_days_daily_real_cost.png" class="graph-thumb" alt="cloudzero-dashboard: AccountName &amp; Service — Cost Centers: Works &amp; Document; Data Foundations | Product: rdp-works | Services: S3, RDS, EFS | Last 30 days (daily, real_cost)"><span class="graph-filename">cloudzero-dashboard: AccountName &amp; Service — Cost Centers: Works &amp; Document; Data Foundations | Product: rdp-works | Services: S3, RDS, EFS | Last 30 days (daily, real_cost)</span></td><td>rdp-works, Cost Centers: Works & Document + Data Foundations; S3/RDS/EFS only; 04/05–05/04 (daily, real_cost); 5 accounts</td><td>Total 30-day: aws-rt-dataconfidential-prod $5,392.65; aws-rt-dataconfidential-nonprod $3,399.57; aws-rt-data-platform-prod $1,947.92; aws-deng-tiodeng-nonprod-dp-ops $676.59; aws-rt-databusiness-prod $52.76. Daily range $312–$456. Peak 04/15 at $456</td><td>Mixed — dataconfidential-prod decreased −32.1%; deng-tiodeng +67.4%; databusiness-prod +304.9%</td><td><span class="severity-indicator warning">WARNING</span> aws-deng-tiodeng-nonprod-dp-ops +67.4% cost increase warrants review. <span class="severity-indicator critical">CRITICAL</span> aws-rt-databusiness-prod +304.9% though absolute value ($52.76) is low. <span class="severity-indicator positive">POSITIVE</span> Largest account (dataconfidential-prod) reduced by −32.1% ($2,553.49 saved).</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/002_cloudzero-dashboard_AccountName_Service_Cost_Center_Sources_OBII_Product_OpsBank2_Opsbank_opsbank2_variants_Services_S3_RDS_EFS_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AccountName &amp; Service — Cost Center: Sources &amp; OBII | Product: OpsBank2 (Opsbank/opsbank2 variants) | Services: S3, RDS, EFS | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AccountName &amp; Service — Cost Center: Sources &amp; OBII | Product: OpsBank2 (Opsbank/opsbank2 variants) | Services: S3, RDS, EFS | Last 30 days</span></td><td>OpsBank2 (opsbank2 variants), Cost Center: Sources & OBII; S3/RDS/EFS only; 04/05–05/04; 3 accounts</td><td>Total: aws-rt-opsbank2-prod $15,216.91 (+3%); aws-rt-opsbank2nonprod $3,987.88 (−5.4%); aws-rt-opsbank2-backup $2,039.00 (−0.3%). Daily range $546–$770</td><td>Stable with slight decrease toward end — last day 05/04 dropped to $546 vs typical $710–$770</td><td><span class="severity-indicator positive">POSITIVE</span> Overall costs stable/declining. Last-day drop to $546 on 05/04 may be partial-day data — confirm before acting.</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/003_cloudzero-dashboard_AccountName_Service_Cost_Centers_Data_Foundations_Sources_OBII_Product_rdp-sources_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AccountName &amp; Service — Cost Centers: Data Foundations; Sources &amp; OBII | Product: rdp-sources | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AccountName &amp; Service — Cost Centers: Data Foundations; Sources &amp; OBII | Product: rdp-sources | Last 30 days</span></td><td>rdp-sources, Cost Centers: Data Foundations + Sources & OBII; all services; 04/05–05/04; 7 accounts</td><td>Total: aws-rt-data-platform-prod $1,222.36 (+2.5%); aws-dataplatform-backup $329.87 (−14.8%); aws-deng-tiodeng-nonprod-dp-ops $329.26 (+61.4%); aws-rt-data-platform-nonprod $219.52 (−65.2%); aws-rt-dataconfidential-nonprod $115.67 (+118.7%); aws-rt-dataconfidential-prod $4.16 (+41,500%!); aws-rt-databusiness-nonprod $2.93 (−88.1%). Daily range $66–$80</td><td>Stable daily totals; last day 05/04 drops to $66 (possible partial day)</td><td><span class="severity-indicator critical">CRITICAL</span> aws-rt-dataconfidential-prod at +41,500% is a statistical anomaly (very small base ~$0.00 prior period → $4.16). <span class="severity-indicator warning">WARNING</span> aws-rt-dataconfidential-nonprod +118.7% and aws-deng-tiodeng +61.4% require investigation. <span class="severity-indicator positive">POSITIVE</span> Overall daily spend very stable and low ($66–$80).</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/004_cloudzero-dashboard_AccountName_Service_Cost_Center_Sources_OBII_Product_OpsBank2_Opsbank_opsbank2_variants_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AccountName &amp; Service — Cost Center: Sources &amp; OBII | Product: OpsBank2 (Opsbank/opsbank2 variants) | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AccountName &amp; Service — Cost Center: Sources &amp; OBII | Product: OpsBank2 (Opsbank/opsbank2 variants) | Last 30 days</span></td><td>OpsBank2, Cost Center: Sources & OBII; all services; 04/05–05/04; 3 accounts</td><td>Total: aws-rt-opsbank2-prod $22,714.35 (−0.5%); aws-rt-opsbank2nonprod $7,948.90 (−4.8%); aws-rt-opsbank2-backup $2,204.57 (+0.2%). Combined 30-day total ~$32,867. Daily range $679–$1.21K</td><td>Decreasing/stable overall; peak 04/08 at $1.21K; last day 05/04 at $679</td><td><span class="severity-indicator positive">POSITIVE</span> All three accounts showing flat to declining costs. aws-rt-opsbank2nonprod −4.8% (−$402.46) is a positive signal. Last-day drop may be partial data.</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/005_cloudzero-dashboard_AccountName_Service_Cost_Centers_Works_Document_Data_Foundations_Product_rdp-works_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AccountName &amp; Service — Cost Centers: Works &amp; Document; Data Foundations | Product: rdp-works | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AccountName &amp; Service — Cost Centers: Works &amp; Document; Data Foundations | Product: rdp-works | Last 30 days</span></td><td>rdp-works, Cost Centers: Works & Document + Data Foundations; all services; 04/05–05/04; 7 accounts</td><td>Total: aws-rt-data-platform-prod $6,987.87 (+179.9%); aws-rt-dataconfidential-prod $5,433.90 (−32%); aws-rt-dataconfidential-nonprod $3,400.50 (+0.4%); aws-deng-tiodeng-nonprod-dp-ops $3,047.45 (+146.8%); aws-rt-databusiness-prod $52.76 (+304.9%); aws-dataplatform-backup $41.17 (New Cost); aws-rt-data-platform-nonprod $3.13 (−99.6%). Daily range $387–$1,450. Spike end of period: 05/01 $1,090; 05/02 $1,450; 05/03 $1,200</td><td>Strong increase — sharp spike in last 4 days of period</td><td><span class="severity-indicator critical">CRITICAL</span> aws-rt-data-platform-prod +179.9% (+$4,491.50) is the dominant driver of the late-period spike. <span class="severity-indicator critical">CRITICAL</span> aws-deng-tiodeng +146.8% (+$1,812.63). <span class="severity-indicator critical">CRITICAL</span> aws-dataplatform-backup appears as "New Cost" — new resource created mid-period. aws-rt-data-platform-nonprod −99.6% may indicate decommission or workload migration.</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/006_cloudzero-dashboard_AccountName_Service_Cost_Center_Sources_OBII_All_Products_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AccountName &amp; Service — Cost Center: Sources &amp; OBII | All Products | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AccountName &amp; Service — Cost Center: Sources &amp; OBII | All Products | Last 30 days</span></td><td>Sources & OBII; All products; 04/05–05/04; 4 accounts</td><td>Total: aws-rt-opsbank2-prod $35,945.68 (+27.2%); aws-rt-opsbank2nonprod $10,083.50 (−9.4%); aws-rt-opsbank2-backup $2,214.80 (+0.1%); aws-rt-opsbank $574.44 (−1.1%). Daily range $1,360–$2,150. Peak 04/25 at $2,150</td><td>Moderate increase overall; prod account driving +27.2% growth</td><td><span class="severity-indicator warning">WARNING</span> aws-rt-opsbank2-prod +27.2% (+$7,678.08) is a significant absolute increase over 30 days. The 04/25 daily spike to $2,150 is ~57% above the period low of $1,360. <span class="severity-indicator positive">POSITIVE</span> Nonprod declining −9.4% (−$1,041.90).</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/007_cloudzero-dashboard_AWS_AccountTag_Name_Service_Product_rdp-works_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-works | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-works | Last 30 days</span></td><td>rdp-works, AWS AccountTag(Name) & Service; 04/05–05/04; 7 accounts</td><td>Identical totals to G005: aws-rt-data-platform-prod $6,987.87 (+179.9%); aws-rt-dataconfidential-prod $5,433.90 (−32%); aws-deng-tiodeng-nonprod-dp-ops $3,047.45 (+146.8%); aws-rt-dataconfidential-nonprod $3,400.50 (+0.4%); aws-rt-databusiness-prod $52.76 (+304.9%); aws-dataplatform-backup $41.17 (New); aws-rt-data-platform-nonprod $3.13 (−99.6%). Daily spike 05/02 at $1,450</td><td>Strong increase — same pattern as G005</td><td><span class="severity-indicator warning">WARNING</span> G007 and G005 reflect identical data via different dimension (AccountName vs AccountTag). Confirms late-period spike is real. The same spike (04/05 $387 → 05/02 $1,450) is consistent across both views — not a data artifact.</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/008_cloudzero-dashboard_AWS_AccountTag_Name_Service_Product_rdp-sources_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-sources | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-sources | Last 30 days</span></td><td>rdp-sources, AWS AccountTag(Name) & Service; 04/05–05/04; 7 accounts</td><td>Identical totals to G003: aws-rt-data-platform-prod $1,222.36 (+2.5%); aws-deng-tiodeng-nonprod-dp-ops $329.26 (+61.4%); aws-dataplatform-backup $329.87 (−14.8%); aws-rt-data-platform-nonprod $219.52 (−65.2%); aws-rt-dataconfidential-nonprod $115.67 (+118.7%); aws-rt-dataconfidential-prod $4.16 (+41,500%); aws-rt-databusiness-nonprod $2.93 (−88.1%). Daily range $66–$80</td><td>Stable</td><td><span class="severity-indicator warning">WARNING</span> Same data as G003 via AccountTag dimension — confirms rdp-sources cost data is consistent across both dimension groupings. aws-rt-dataconfidential-prod entering rdp-sources at +41,500% confirmed as real (not artefact).</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/009_cloudzero-dashboard_AWS_AccountTag_Name_Service_Product_rdp-document_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-document | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-document | Last 30 days</span></td><td>rdp-document, AWS AccountTag(Name) & Service; 04/05–05/04; 6 accounts</td><td>Total: aws-rt-data-platform-prod $437.96 (−3.6%); aws-deng-tiodeng-nonprod-dp-ops $435.54 (+54.7%); aws-rt-dataconfidential-prod $27.56 (+0.9%); aws-rt-dataconfidential-nonprod $5.44 (+20.1%); aws-rt-data-platform-nonprod $0.56 (−99.8%); aws-dataplatform-backup $0.44 (−2.2%). Daily range $27–$32. Very stable</td><td>Stable with very slight softening</td><td><span class="severity-indicator warning">WARNING</span> aws-deng-tiodeng-nonprod-dp-ops +54.7% (+$154.09) — approaching parity with the top account (data-platform-prod $437 vs $435). <span class="severity-indicator positive">POSITIVE</span> Total daily spend very low and stable. aws-rt-data-platform-nonprod near zero (−99.8%) likely decommissioned.</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/010_cloudzero-dashboard_AWS_AccountTag_Name_Service_Product_rdp-content_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-content | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-content | Last 30 days</span></td><td>rdp-content, AWS AccountTag(Name) & Service; 04/05–05/04; 4 accounts</td><td>Total: aws-rt-dataconfidential-prod $229.23 (+31.2%); aws-rt-dataconfidential-nonprod $195.73 (+7.2%); aws-dataexternal-nonprod $64.40 (+0.3%); aws-dataexternal-prod $0.71 (+208.7%). Daily range $16–$18. Slight uptick late period ($18 around 04/28–04/30)</td><td>Slightly increasing — all accounts showing positive change</td><td><span class="severity-indicator warning">WARNING</span> aws-rt-dataconfidential-prod +31.2% (+$54.50) for rdp-content is the largest driver. aws-dataexternal-prod +208.7% though negligible ($0.71 absolute). <span class="severity-indicator positive">POSITIVE</span> Overall spend very low ($16–$18/day).</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/011_cloudzero-dashboard_AWS_AccountTag_Name_Service_Product_rdp-consumption_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-consumption | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-consumption | Last 30 days</span></td><td>rdp-consumption, AWS AccountTag(Name) & Service; 04/05–05/04; 6 accounts</td><td>Total: aws-rt-dataconfidential-nonprod $20,303.82 (+273%); aws-deng-tiodeng-nonprod-dp-ops $8,827.02 (+37.1%); aws-rt-data-platform-nonprod $56.67 (−99.2%); aws-rt-data-platform-prod $1.43 (−1.4%). Daily range $468–$3,030. Spike 04/14 $1.66K → 04/15 $3.03K → 04/16 $2.46K → 04/17 $1.98K</td><td>Strong increase — driven by massive nonprod escalation</td><td><span class="severity-indicator critical">CRITICAL</span> aws-rt-dataconfidential-nonprod +273% (+$14,860.25) is the most critical finding in this graph. <span class="severity-indicator critical">CRITICAL</span> Mid-period spike on 04/14–04/17 reaching $3.03K/day is 6× the period-start baseline of $468. aws-rt-data-platform-nonprod −99.2% may indicate workload migration.</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/012_cloudzero-dashboard_AWS_AccountTag_Name_Service_Product_rdp-consumption_Last_30_days_duplicate.png" class="graph-thumb" alt="cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-consumption | Last 30 days (duplicate)"><span class="graph-filename">cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Product: rdp-consumption | Last 30 days (duplicate)</span></td><td>rdp-consumption (duplicate view), AWS AccountTag(Name) & Service; all 5 products applied as filter; 04/05–05/04; 12 accounts</td><td>Top totals: aws-rt-dataconfidential-nonprod $24,021.16 (+164.8%); aws-deng-tiodeng-nonprod-dp-ops $12,639.27 (+54.9%); aws-rt-data-platform-prod $8,649.62 (+108.7%); aws-rt-dataconfidential-prod $5,694.85 (−30.5%); aws-rt-data-platform-nonprod $279.89 (−96.7%). Daily range $981–$3.24K</td><td>Strong increase, same mid-period spike pattern</td><td><span class="severity-indicator warning">WARNING</span> Despite being labeled "duplicate", this view covers all 5 products (not just rdp-consumption) — filter bar shows "rdp-consumption, rdp-content +3 more". Totals are higher than G011. <span class="severity-indicator critical">CRITICAL</span> aws-rt-dataconfidential-nonprod +164.8% (+$14,950.74) dominates. <span class="severity-indicator critical">CRITICAL</span> aws-rt-data-platform-nonprod −96.7% (−$8,330.54) is a very large drop — likely decommission or migration.</td></tr><tr><td class="graph-cell"><img src="graph_report_20260505_175623_graphs/013_cloudzero-dashboard_AWS_AccountTag_Name_Service_Products_rdp-consumption_rdp-content_rdp-document_rdp-sources_rdp-works_Last_30_days.png" class="graph-thumb" alt="cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Products: rdp-consumption, rdp-content, rdp-document, rdp-sources, rdp-works | Last 30 days"><span class="graph-filename">cloudzero-dashboard: AWS AccountTag(Name) &amp; Service — Products: rdp-consumption, rdp-content, rdp-document, rdp-sources, rdp-works | Last 30 days</span></td><td>All 5 products (rdp-consumption, rdp-content, rdp-document, rdp-sources, rdp-works), AWS AccountTag(Name) & Service; 04/05–05/04; 12 accounts</td><td>Identical data to G012: aws-rt-dataconfidential-nonprod $24,021.16 (+164.8%); aws-deng-tiodeng-nonprod-dp-ops $12,639.27 (+54.9%); aws-rt-data-platform-prod $8,649.62 (+108.7%); aws-rt-dataconfidential-prod $5,694.85 (−30.5%); aws-dataplatform-backup $371.49 (−4.2%); aws-rt-databusiness-prod $52.76 (+304.9%); aws-rt-databusiness-nonprod $2.93 (−88.1%); aws-dataexternal-prod $0.71 (+208.7%). Daily spike 04/14–04/15 to $3.24K. Late-period elevation: 05/02 $2.46K</td><td>Strong increase</td><td><span class="severity-indicator critical">CRITICAL</span> G013 and G012 are equivalent views (same filter applied); confirms G012 is NOT a true duplicate of G011. <span class="severity-indicator critical">CRITICAL</span> The $3.24K peak on 04/15 is the highest single-day cost across all 13 graphs for this product portfolio. <span class="severity-indicator warning">WARNING</span> End-of-period costs ($2.36K–$2.46K on 05/01–05/02) remain well above the period-start ($981 on 04/05).</td></tr></tbody></table></div>---
+<h3>Executive Summary</h3>
+<div class="table-wrapper"><table><thead><tr><th>Category</th><th>Finding</th><th>Severity</th></tr></thead><tbody><tr><td>Overall Pattern</td><td>Costs across the RDP product portfolio (rdp-works, rdp-consumption) are significantly elevated in the last 10 days vs. the start of the period. The portfolio-wide daily spend doubled from ~$981 (04/05) to ~$2,460 (05/02). aws-rt-dataconfidential-nonprod and aws-deng-tiodeng-nonprod-dp-ops are the primary growth drivers across nearly all product views.</td><td><span class="severity-indicator critical">CRITICAL</span></td></tr><tr><td>Largest Movement</td><td>aws-rt-dataconfidential-nonprod in rdp-consumption (G011): +273% (+$14,860.25) over 30 days; single-day peak on 04/15 reached $3.03K — approximately 6× the 04/05 baseline of $468/day.</td><td><span class="severity-indicator critical">CRITICAL</span></td></tr><tr><td>Critical Anomaly</td><td>Mid-period spike 04/13–04/17 across rdp-works and rdp-consumption accounts: daily costs surged to $3.03K–$3.24K then partially subsided but never returned to baseline — end-of-period levels remain elevated at $2.14K–$2.46K. Also: aws-rt-data-platform-nonprod dropped −96.7% to −99.8% across multiple product views, suggesting a large-scale decommission or workload migration that may explain some of the cost shift to other accounts.</td><td><span class="severity-indicator critical">CRITICAL</span></td></tr><tr><td>Data Quality</td><td>All 13 images are fully readable. G012 is labeled "duplicate" of G011 but is actually a distinct broader-scope view (all 5 products vs. rdp-consumption only) — the label is misleading. G007/G005 and G008/G003 are verified-consistent cross-dimension pairs. Last-day values (05/04) appear low across all graphs — likely partial-day capture at time of screenshot.</td><td><span class="severity-indicator warning">WARNING</span></td></tr></tbody></table></div><strong>Recommended Actions:</strong>
+<ul>
+<li><strong>Immediate:</strong> Investigate the 04/13–04/17 spike in aws-rt-dataconfidential-nonprod (rdp-consumption): identify what workload or job drove $3.03K in a single day — check for runaway batch jobs, accidental data replication, or untagged resources. Validate whether aws-rt-data-platform-nonprod decommission (−96.7–99.8%) was intentional and confirm no resources were silently migrated to higher-cost accounts.</li>
+<li><strong>Short-term:</strong> Review aws-rt-data-platform-prod in rdp-works (+179.9%, +$4,491.50) and aws-deng-tiodeng-nonprod-dp-ops across rdp-works (+146.8%), rdp-sources (+61.4%), rdp-document (+54.7%), and rdp-consumption (+37.1%) — this account is escalating across every product simultaneously, suggesting an infrastructure change or uncontrolled resource growth. Set budget alerts for aws-rt-opsbank2-prod ($35,945.68, +27.2%) in Sources &amp; OBII.</li>
+<li><strong>Follow-up:</strong> Rename or retitle G012 in the dashboard to accurately reflect "All 5 Products" scope (not "rdp-consumption duplicate"). Confirm whether the 05/04 partial-day data for OpsBank2 ($546 vs. typical $700+) is expected or indicates a service disruption. Monitor aws-rt-dataconfidential-prod in rdp-sources flagged at +41,500% to ensure this is not an ongoing ingestion anomaly.</li>
+</ul>
+        </main>
+        <footer class="footer">
+            Generated by dashboard-agent | Graph Report Generator v1.0
+        </footer>
+    </div>
+
+    <!-- Lightbox overlay -->
+    <div id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged graph">
+        <button id="lightbox-close" aria-label="Close">&times;</button>
+        <img id="lightbox-img" src="" alt="">
+        <div id="lightbox-caption"></div>
+    </div>
+
+    <script>
+        (function () {
+            const lb      = document.getElementById('lightbox');
+            const lbImg   = document.getElementById('lightbox-img');
+            const lbCap   = document.getElementById('lightbox-caption');
+            const lbClose = document.getElementById('lightbox-close');
+
+            function open(src, caption) {
+                lbImg.src = src;
+                lbImg.alt = caption;
+                lbCap.textContent = caption;
+                lb.classList.add('open');
+                document.body.style.overflow = 'hidden';
+            }
+
+            function close() {
+                lb.classList.remove('open');
+                lbImg.src = '';
+                document.body.style.overflow = '';
+            }
+
+            // Delegate click on any .graph-thumb
+            document.addEventListener('click', function (e) {
+                const thumb = e.target.closest('.graph-thumb');
+                if (thumb) {
+                    e.preventDefault();
+                    const caption = thumb.nextElementSibling
+                        ? thumb.nextElementSibling.textContent.trim()
+                        : thumb.alt || '';
+                    open(thumb.src, caption);
+                }
+            });
+
+            // Close on overlay click, close button, or Escape key
+            lb.addEventListener('click', function (e) {
+                if (e.target === lb) close();
+            });
+            lbClose.addEventListener('click', close);
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && lb.classList.contains('open')) close();
+            });
+
+            // Prevent propagation from the image itself so clicking the image
+            // does not re-trigger the overlay close handler.
+            lbImg.addEventListener('click', function (e) { e.stopPropagation(); });
+        })();
+    </script>
+</body>
+</html>

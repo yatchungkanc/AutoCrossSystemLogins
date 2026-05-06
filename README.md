@@ -159,7 +159,7 @@ All graph thumbnails are clickable — clicking opens a full-size lightbox overl
 
 #### Sample generated report
 
-The sample report at [dashboard-agent/output/graph_report_20260505_175623.html](dashboard-agent/output/graph_report_20260505_175623.html) shows the current graph-report format using 13 CloudZero captures stored beside it in [dashboard-agent/output/graph_report_20260505_175623_graphs/](dashboard-agent/output/graph_report_20260505_175623_graphs/).
+The sample report at [docs/images/graph_report_20260505_175623.html](docs/images/graph_report_20260505_175623.html) shows the current graph-report format using 13 CloudZero captures stored beside it in [docs/images/graph_report_20260505_175623_graphs/](docs/images/graph_report_20260505_175623_graphs/).
 
 ![Sample graph-report HTML showing analyzed graphs and analysis results](docs/images/graph_report_20260505_175623_preview.png)
 
