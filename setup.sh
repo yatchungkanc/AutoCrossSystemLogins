@@ -8,6 +8,12 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$ROOT_DIR/.venv"
 ENV_FILE="$AGENT_DIR/.env"
 ENV_EXAMPLE="$AGENT_DIR/.env.example"
+PYENV_VERSION_FILE="$ROOT_DIR/.python-version"
+PYENV_ENV=""
+
+if [[ -f "$PYENV_VERSION_FILE" ]]; then
+    PYENV_ENV="$(<"$PYENV_VERSION_FILE")"
+fi
 
 echo "=== projectHotGates setup ==="
 echo ""
@@ -31,7 +37,10 @@ fi
 echo "[1/4] Python $PY_VER found."
 
 # ── 2. Virtual environment ────────────────────────────────────────────────────
-if [[ -d "$VENV_DIR" ]]; then
+if [[ -n "$PYENV_ENV" && "$PYENV_ENV" != "$PY_VER" && $(command -v pyenv || true) ]]; then
+    VENV_DIR="$(pyenv prefix "$PYENV_ENV")"
+    echo "[2/4] Using pyenv virtual environment '$PYENV_ENV'."
+elif [[ -d "$VENV_DIR" ]]; then
     echo "[2/4] Virtual environment already exists at .venv — skipping creation."
 else
     echo "[2/4] Creating virtual environment at .venv..."
@@ -43,7 +52,7 @@ fi
 source "$VENV_DIR/bin/activate"
 
 echo "      Installing dependencies from dashboard-agent/pyproject.toml..."
-pip install --quiet -e "$AGENT_DIR"
+pip install --quiet -e "$AGENT_DIR[dev]"
 
 # ── 3. Playwright / Chromium ──────────────────────────────────────────────────
 echo "[3/4] Installing Playwright Chromium browser..."

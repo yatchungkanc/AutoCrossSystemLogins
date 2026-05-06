@@ -22,7 +22,8 @@ dashboard-agent/output/test_capture/
 dashboard-agent/output/*_graphs/
 
 # IDE
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo

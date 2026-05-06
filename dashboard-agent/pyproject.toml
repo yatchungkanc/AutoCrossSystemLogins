@@ -9,5 +9,10 @@ dependencies = [
     "Pillow>=10.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "isort>=7.0.0,<9",
+]
+
 [project.scripts]
 dashboard-agent = "src.orchestrator:main"

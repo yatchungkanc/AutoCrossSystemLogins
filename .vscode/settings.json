@@ -1,0 +1,7 @@
+{
+    "python.defaultInterpreterPath": "${userHome}/.pyenv/versions/dashboard-agent/bin/python",
+    "isort.importStrategy": "fromEnvironment",
+    "isort.interpreter": [
+        "${userHome}/.pyenv/versions/dashboard-agent/bin/python"
+    ]
+}
