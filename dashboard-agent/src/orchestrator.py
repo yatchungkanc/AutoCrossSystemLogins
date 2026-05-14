@@ -174,7 +174,7 @@ async def run_setup(chrome: str):
 
         if "cloudzero" in required_auth:
             logger.info("Opening CloudZero login page — please log in manually...")
-            await page.goto("https://app.cloudzero.com/")
+            await page.goto("https://next.cloudzero.com/")
             await page.wait_for_load_state("load")
 
             logger.info("")
