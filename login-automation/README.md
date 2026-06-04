@@ -85,9 +85,12 @@ Examples:
 ```bash
 python login-automation/scripts/manual_login_test.py powerbi --env-file dashboard-agent/.env
 python login-automation/scripts/manual_login_test.py atlassian --env-file dashboard-agent/.env
+python login-automation/scripts/manual_login_test.py cloudzero --env-file dashboard-agent/.env --landing-url https://app.cloudzero.com/
 ```
 
-The script uses a persistent local browser profile at `login-automation/.manual-login-profile` by default and waits for ENTER before closing the browser. You can also provide credentials directly through environment variables:
+The script uses a persistent local browser profile at `login-automation/.manual-login-profile` by default and waits for ENTER before closing the browser. For context-based logins such as CloudZero, use `--landing-url` to open a real page after authentication succeeds; otherwise the visible test page may remain blank.
+
+You can also provide credentials directly through environment variables:
 
 For CloudZero, the dispatcher passes `CLOUDZERO_EMAIL` plus `SSO_USERNAME` and `SSO_PASSWORD` when they are available, so the script can continue through the Microsoft SSO redirect in a fresh browser profile.
 
@@ -106,3 +109,4 @@ Credential env fallbacks:
 - `AUTOCROSS_ATLASSIAN_TOKEN` or `ATLASSIAN_API_TOKEN`
 - `AUTOCROSS_CLOUDZERO_EMAIL` or `CLOUDZERO_EMAIL`
 - `AUTOCROSS_CLOUDHEALTH_EMAIL` or `CLOUDHEALTH_EMAIL`
+- `AUTOCROSS_LANDING_URL`

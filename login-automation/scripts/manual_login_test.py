@@ -88,6 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Close the browser immediately after the login attempt.",
     )
+    parser.add_argument(
+        "--landing-url",
+        help=(
+            "Optional URL to open after login succeeds. "
+            "Can also be set with AUTOCROSS_LANDING_URL."
+        ),
+    )
     return parser
 
 
@@ -128,6 +135,13 @@ async def run_manual_test(args: argparse.Namespace) -> int:
             credentials=credentials,
         )
         print(f"Login result: {'ok' if ok else 'failed'}")
+
+        landing_url = args.landing_url or os.environ.get("AUTOCROSS_LANDING_URL", "")
+        if ok and landing_url:
+            print(f"Opening landing URL: {landing_url}")
+            await page.goto(landing_url)
+            await page.wait_for_load_state("load")
+
         print(f"Current page URL: {page.url}")
 
         if not args.close_immediately and not args.headless:
@@ -157,4 +171,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
