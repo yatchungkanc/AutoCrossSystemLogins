@@ -1,0 +1,21 @@
+[project]
+name = "autocross-login"
+version = "0.1.0"
+description = "Reusable async Playwright login wrappers extracted from AutoCrossSystemLogins."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+playwright = [
+    "playwright>=1.40",
+]
+dev = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
