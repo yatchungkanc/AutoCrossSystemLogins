@@ -4,6 +4,8 @@ Reusable async login helpers extracted from AutoCrossSystemLogins.
 
 The package is intentionally small. It does not launch browsers or manage dashboard tabs. Callers provide their own Playwright `Page` or `BrowserContext`, then call one of the wrappers.
 
+For a full integration walkthrough, see [Using autocross-login in Another Project](docs/using-in-another-project.md).
+
 ## Install
 
 From this repository:
