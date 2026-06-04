@@ -18,7 +18,6 @@ If the other project does not already install Playwright:
 
 ```bash
 pip install -e "/path/to/AutoCrossSystemLogins/login-automation[playwright]"
-playwright install chromium
 ```
 
 ### Option B: Git Install
@@ -27,12 +26,39 @@ Use this when the library branch is available from Git:
 
 ```bash
 pip install "autocross-login @ git+https://github.com/<org>/<repo>.git@feature/login-automation-library#subdirectory=login-automation"
-playwright install chromium
 ```
 
 Replace `<org>/<repo>` with the actual repository location.
 
-## 2. Create a Browser Context
+## 2. Install Playwright
+
+`autocross-login` does not import Playwright at package import time, but your application needs Playwright to create the browser, context, and page objects passed into the login wrappers.
+
+If Playwright is not already installed in your project, install it:
+
+```bash
+pip install "playwright>=1.40"
+```
+
+Then install the Chromium browser binary:
+
+```bash
+playwright install chromium
+```
+
+If you installed the library with the `[playwright]` extra, the Python package is already installed and you only need the browser binary step:
+
+```bash
+playwright install chromium
+```
+
+Quick check:
+
+```bash
+python -c "from playwright.async_api import async_playwright; print('Playwright import ok')"
+```
+
+## 3. Create a Browser Context
 
 Use a persistent context if you want SSO cookies and sessions to survive across runs.
 
@@ -59,7 +85,7 @@ async with async_playwright() as playwright:
 
 Use a non-persistent context only when you deliberately want a fresh login each run.
 
-## 3. Choose Direct Wrapper or Dispatcher
+## 4. Choose Direct Wrapper or Dispatcher
 
 Use direct wrappers when your app knows exactly which provider it is logging into.
 
@@ -71,7 +97,7 @@ auth_type: cloudzero
 
 Both styles are async and return `True` or `False`.
 
-## 4. Direct Wrapper Examples
+## 5. Direct Wrapper Examples
 
 ### Power BI
 
@@ -142,7 +168,7 @@ ok = await login_atlassian(
 )
 ```
 
-## 5. Dispatcher Example
+## 6. Dispatcher Example
 
 The dispatcher accepts an auth type string and a credential bundle.
 
@@ -187,7 +213,7 @@ ok = await login(
 )
 ```
 
-## 6. Supported Auth Types
+## 7. Supported Auth Types
 
 | Auth type | Target | Required credentials |
 |---|---|---|
@@ -202,7 +228,7 @@ ok = await login(
 
 `cloudzero`, `cloudhealth`, and `atlassian` are optional in the dispatcher. If their credentials are missing, the dispatcher returns `True` and skips them. Required page-based auth types return `False` when credentials are missing.
 
-## 7. Full Minimal Example
+## 8. Full Minimal Example
 
 ```python
 import asyncio
@@ -255,7 +281,7 @@ export CLOUDZERO_EMAIL="user@example.com"
 python example_login.py
 ```
 
-## 8. Manual Smoke Test Before Integrating
+## 9. Manual Smoke Test Before Integrating
 
 From the AutoCrossSystemLogins repo:
 
@@ -273,7 +299,7 @@ python login-automation/scripts/manual_login_test.py email_only \
   --landing-url "https://eu-west-1a.online.tableau.com/#/site/<site>/views/<workbook>/<view>"
 ```
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### Import Fails
 
@@ -327,4 +353,3 @@ Quote URLs that contain `&`, `?`, or `#`:
 ```bash
 --landing-url "https://app.cloudzero.com/explorer?date_range=last_30_days&cost_type=real_cost"
 ```
-
