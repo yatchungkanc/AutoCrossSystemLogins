@@ -79,6 +79,7 @@ class LoginDispatcher:
         page: Any | None = None,
         context: Any | None = None,
         credentials: AuthCredentials | object | None = None,
+        landing_url: str = "",
     ) -> bool:
         strategy = self.strategies.get(auth_type)
         if strategy is None:
@@ -103,6 +104,8 @@ class LoginDispatcher:
             logger.warning("Cannot run auth_type %r; %s target missing.", auth_type, strategy.target)
             return False
 
+        if auth_type == "cloudzero" and landing_url:
+            return await strategy.func(target, *values, landing_url=landing_url)
         return await strategy.func(target, *values)
 
 
@@ -113,6 +116,7 @@ async def login(
     context: Any | None = None,
     credentials: AuthCredentials | object | None = None,
     strategies: Mapping[str, AuthStrategySpec] | None = None,
+    landing_url: str = "",
 ) -> bool:
     """Run a named login strategy with the default dispatcher."""
     dispatcher = LoginDispatcher(strategies)
@@ -121,4 +125,5 @@ async def login(
         page=page,
         context=context,
         credentials=credentials,
+        landing_url=landing_url,
     )

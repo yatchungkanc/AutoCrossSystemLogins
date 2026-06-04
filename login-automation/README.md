@@ -85,10 +85,16 @@ Examples:
 ```bash
 python login-automation/scripts/manual_login_test.py powerbi --env-file dashboard-agent/.env
 python login-automation/scripts/manual_login_test.py atlassian --env-file dashboard-agent/.env
-python login-automation/scripts/manual_login_test.py cloudzero --env-file dashboard-agent/.env --landing-url https://app.cloudzero.com/
+python login-automation/scripts/manual_login_test.py cloudzero --env-file dashboard-agent/.env --landing-url "https://app.cloudzero.com/"
 ```
 
-The script uses a persistent local browser profile at `login-automation/.manual-login-profile` by default and waits for ENTER before closing the browser. For context-based logins such as CloudZero, use `--landing-url` to open a real page after authentication succeeds; otherwise the visible test page may remain blank.
+The script uses a persistent local browser profile at `login-automation/.manual-login-profile` by default and waits for ENTER before closing the browser. For context-based logins such as CloudZero, use `--landing-url` to open a real page after authentication succeeds; otherwise the visible test page may remain blank. For CloudZero, the landing URL is also used as the initial URL for the login flow so the provider can preserve the requested destination through SSO redirects.
+
+Quote landing URLs that contain shell-sensitive characters such as `&`:
+
+```bash
+python login-automation/scripts/manual_login_test.py cloudzero --env-file dashboard-agent/.env --landing-url "https://app.cloudzero.com/explorer?date_range=last_30_days&cost_type=real_cost"
+```
 
 You can also provide credentials directly through environment variables:
 

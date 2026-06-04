@@ -1,7 +1,7 @@
 import unittest
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -106,6 +106,23 @@ class ProviderWrapperTests(unittest.IsolatedAsyncioTestCase):
             providers.authenticate_microsoft_sso = original
 
         auth_mock.assert_not_awaited()
+
+    async def test_cloudzero_starts_at_landing_url_when_provided(self) -> None:
+        page = AsyncMock()
+        page.url = "https://app.cloudzero.com/explorer"
+        page.locator.return_value.first = AsyncMock()
+        context = AsyncMock()
+        context.new_page = AsyncMock(return_value=page)
+
+        with patch.object(providers.asyncio, "sleep", new=AsyncMock()):
+            ok = await providers.login_cloudzero(
+                context,
+                "person@example.com",
+                landing_url="https://app.cloudzero.com/explorer",
+            )
+
+        self.assertTrue(ok)
+        page.goto.assert_awaited_once_with("https://app.cloudzero.com/explorer")
 
 
 if __name__ == "__main__":

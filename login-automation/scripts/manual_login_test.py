@@ -128,17 +128,20 @@ async def run_manual_test(args: argparse.Namespace) -> int:
 
         print(f"Testing auth_type={args.auth_type!r}")
         print(f"Using browser profile: {args.profile_dir}")
+        landing_url = args.landing_url or os.environ.get("AUTOCROSS_LANDING_URL", "")
         ok = await login(
             args.auth_type,
             page=page if strategy.target == "page" else None,
             context=context if strategy.target == "context" else None,
             credentials=credentials,
+            landing_url=landing_url,
         )
         print(f"Login result: {'ok' if ok else 'failed'}")
 
-        landing_url = args.landing_url or os.environ.get("AUTOCROSS_LANDING_URL", "")
         if ok and landing_url:
             print(f"Opening landing URL: {landing_url}")
+            if strategy.target == "context":
+                page = await context.new_page()
             await page.goto(landing_url)
             await page.wait_for_load_state("load")
 

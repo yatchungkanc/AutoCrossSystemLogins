@@ -227,11 +227,12 @@ async def login_cloudzero(
     email: str,
     sso_username: str = "",
     sso_password: str = "",
+    landing_url: str = "",
 ) -> bool:
     """Log into CloudZero through email entry and optional Microsoft SSO."""
     page = await context.new_page()
     try:
-        await page.goto(CLOUDZERO_LOGIN.login_url)
+        await page.goto(landing_url or CLOUDZERO_LOGIN.login_url)
         await page.wait_for_load_state("load")
         await asyncio.sleep(CLOUDZERO_LOGIN.initial_wait_s)
 
@@ -269,6 +270,9 @@ async def login_cloudzero(
 
             await page.wait_for_load_state("load")
             await asyncio.sleep(1)
+            if landing_url and page.url != landing_url:
+                await page.goto(landing_url)
+                await page.wait_for_load_state("load")
             return True
         except Exception as exc:
             logger.warning("CloudZero login failed: %s", exc)
