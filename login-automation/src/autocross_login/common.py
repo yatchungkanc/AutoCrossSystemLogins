@@ -49,6 +49,17 @@ async def authenticate_microsoft_sso(
     try:
         await username_field.wait_for(timeout=10000)
     except Exception:
+        if "microsoftonline.com" in getattr(page, "url", ""):
+            password_only_done = await _submit_microsoft_password_if_present(
+                page,
+                password,
+                password_textbox_name=password_textbox_name,
+            )
+            if password_only_done:
+                await click_stay_signed_in_if_present(page)
+                await wait_for_microsoft_sso_complete(page, timeout_ms=timeout_ms)
+                return
+
         logger.info("SSO session still valid; skipping login.")
         return
 
@@ -57,17 +68,37 @@ async def authenticate_microsoft_sso(
     await username_field.press("Enter")
     await page.wait_for_load_state("load")
 
-    logger.info("Entering Microsoft SSO password.")
-    password_field = page.get_by_role("textbox", name=password_textbox_name)
-    await password_field.wait_for(timeout=10000)
-    await password_field.fill(password)
-    await page.get_by_role("button", name="Sign in").click()
+    await _submit_microsoft_password_if_present(
+        page,
+        password,
+        password_textbox_name=password_textbox_name,
+        timeout=10000,
+    )
 
     await page.wait_for_load_state("load")
     await asyncio.sleep(2)
 
     await click_stay_signed_in_if_present(page)
     await wait_for_microsoft_sso_complete(page, timeout_ms=timeout_ms)
+
+
+async def _submit_microsoft_password_if_present(
+    page: Any,
+    password: str,
+    *,
+    password_textbox_name: str,
+    timeout: int = 3000,
+) -> bool:
+    password_field = page.get_by_role("textbox", name=password_textbox_name)
+    try:
+        await password_field.wait_for(timeout=timeout)
+    except Exception:
+        return False
+
+    logger.info("Entering Microsoft SSO password.")
+    await password_field.fill(password)
+    await page.get_by_role("button", name="Sign in").click()
+    return True
 
 
 async def click_stay_signed_in_if_present(page: Any, attempts: int = 3) -> bool:
@@ -184,4 +215,3 @@ async def wait_for_redirect_to_settle(page: Any, config: EmailLoginConfig) -> No
         config.post_redirect_stable_ms // 1000,
         page.url,
     )
-

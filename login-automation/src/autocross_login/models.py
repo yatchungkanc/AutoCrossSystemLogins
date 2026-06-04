@@ -45,5 +45,5 @@ class AuthStrategySpec:
     func: Callable[..., Awaitable[bool]]
     target: Literal["page", "context"]
     credentials: tuple[str, ...]
+    optional_credentials: tuple[str, ...] = ()
     optional: bool = False
-

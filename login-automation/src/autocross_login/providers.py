@@ -222,8 +222,13 @@ async def login_cloudhealth(context: Any, email: str) -> bool:
     return await run_email_login_strategy(context, email, CLOUDHEALTH_LOGIN)
 
 
-async def login_cloudzero(context: Any, email: str) -> bool:
-    """Log into CloudZero through email entry and SSO/account selection."""
+async def login_cloudzero(
+    context: Any,
+    email: str,
+    sso_username: str = "",
+    sso_password: str = "",
+) -> bool:
+    """Log into CloudZero through email entry and optional Microsoft SSO."""
     page = await context.new_page()
     try:
         await page.goto(CLOUDZERO_LOGIN.login_url)
@@ -247,6 +252,7 @@ async def login_cloudzero(context: Any, email: str) -> bool:
 
             await page.wait_for_load_state("load")
             await select_microsoft_account(page, email)
+            await _authenticate_if_on_microsoft_sso(page, sso_username, sso_password)
 
             try:
                 await page.wait_for_url(
@@ -255,6 +261,7 @@ async def login_cloudzero(context: Any, email: str) -> bool:
                 )
             except Exception:
                 await select_microsoft_account(page, email)
+                await _authenticate_if_on_microsoft_sso(page, sso_username, sso_password)
                 await page.wait_for_url(
                     lambda url: CLOUDZERO_LOGIN.redirect_complete(url),
                     timeout=CLOUDZERO_LOGIN.redirect_timeout_ms,
@@ -268,6 +275,19 @@ async def login_cloudzero(context: Any, email: str) -> bool:
             return False
     finally:
         await page.close()
+
+
+async def _authenticate_if_on_microsoft_sso(
+    page: Any,
+    sso_username: str,
+    sso_password: str,
+) -> None:
+    if not sso_username or not sso_password:
+        return
+    if "microsoftonline.com" not in page.url:
+        return
+
+    await authenticate_microsoft_sso(page, sso_username, sso_password)
 
 
 async def login_atlassian(context: Any, email: str, api_token: str) -> bool:
@@ -304,4 +324,3 @@ async def login_atlassian(context: Any, email: str, api_token: str) -> bool:
         return True
     finally:
         await page.close()
-

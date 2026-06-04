@@ -54,6 +54,7 @@ DEFAULT_AUTH_STRATEGIES: dict[str, AuthStrategySpec] = {
         func=login_cloudzero,
         target="context",
         credentials=("cloudzero_email",),
+        optional_credentials=("username", "password"),
         optional=True,
     ),
     "atlassian": AuthStrategySpec(
@@ -84,13 +85,18 @@ class LoginDispatcher:
             logger.warning("Unknown auth_type %r.", auth_type)
             return False
 
-        values = [getattr(credentials, field, "") for field in strategy.credentials]
-        if any(not value for value in values):
+        required_values = [getattr(credentials, field, "") for field in strategy.credentials]
+        if any(not value for value in required_values):
             if strategy.optional:
                 logger.info("Skipping optional auth_type %r; credentials missing.", auth_type)
                 return True
             logger.warning("Cannot run auth_type %r; credentials missing.", auth_type)
             return False
+        optional_values = [
+            getattr(credentials, field, "")
+            for field in strategy.optional_credentials
+        ]
+        values = [*required_values, *optional_values]
 
         target = page if strategy.target == "page" else context
         if target is None:
@@ -116,4 +122,3 @@ async def login(
         context=context,
         credentials=credentials,
     )
-

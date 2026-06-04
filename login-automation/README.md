@@ -89,6 +89,8 @@ python login-automation/scripts/manual_login_test.py atlassian --env-file dashbo
 
 The script uses a persistent local browser profile at `login-automation/.manual-login-profile` by default and waits for ENTER before closing the browser. You can also provide credentials directly through environment variables:
 
+For CloudZero, the dispatcher passes `CLOUDZERO_EMAIL` plus `SSO_USERNAME` and `SSO_PASSWORD` when they are available, so the script can continue through the Microsoft SSO redirect in a fresh browser profile.
+
 ```bash
 AUTOCROSS_USERNAME=user@example.com \
 AUTOCROSS_PASSWORD=secret \

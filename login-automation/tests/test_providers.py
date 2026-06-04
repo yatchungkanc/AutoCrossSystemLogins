@@ -79,6 +79,34 @@ class ProviderWrapperTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    async def test_cloudzero_sso_helper_uses_credentials_on_microsoft_url(self) -> None:
+        page = type("Page", (), {"url": "https://login.microsoftonline.com/common"})()
+        auth_mock = AsyncMock()
+        original = providers.authenticate_microsoft_sso
+        providers.authenticate_microsoft_sso = auth_mock
+        try:
+            await providers._authenticate_if_on_microsoft_sso(
+                page,
+                "user@example.com",
+                "secret",
+            )
+        finally:
+            providers.authenticate_microsoft_sso = original
+
+        auth_mock.assert_awaited_once_with(page, "user@example.com", "secret")
+
+    async def test_cloudzero_sso_helper_skips_without_credentials(self) -> None:
+        page = type("Page", (), {"url": "https://login.microsoftonline.com/common"})()
+        auth_mock = AsyncMock()
+        original = providers.authenticate_microsoft_sso
+        providers.authenticate_microsoft_sso = auth_mock
+        try:
+            await providers._authenticate_if_on_microsoft_sso(page, "", "")
+        finally:
+            providers.authenticate_microsoft_sso = original
+
+        auth_mock.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()

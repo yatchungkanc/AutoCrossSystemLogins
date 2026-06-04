@@ -83,6 +83,63 @@ class LoginDispatcherTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         strategy.assert_awaited_once_with(page, "user", "secret")
 
+    async def test_strategy_dispatches_optional_credentials_when_available(self) -> None:
+        strategy = AsyncMock(return_value=True)
+        context = object()
+        dispatcher = LoginDispatcher(
+            strategies={
+                "cloudzero": AuthStrategySpec(
+                    func=strategy,
+                    target="context",
+                    credentials=("cloudzero_email",),
+                    optional_credentials=("username", "password"),
+                    optional=True,
+                )
+            }
+        )
+
+        ok = await dispatcher.login(
+            "cloudzero",
+            context=context,
+            credentials=AuthCredentials(
+                cloudzero_email="cloud@example.com",
+                username="sso@example.com",
+                password="secret",
+            ),
+        )
+
+        self.assertTrue(ok)
+        strategy.assert_awaited_once_with(
+            context,
+            "cloud@example.com",
+            "sso@example.com",
+            "secret",
+        )
+
+    async def test_strategy_uses_empty_optional_credentials_when_missing(self) -> None:
+        strategy = AsyncMock(return_value=True)
+        context = object()
+        dispatcher = LoginDispatcher(
+            strategies={
+                "cloudzero": AuthStrategySpec(
+                    func=strategy,
+                    target="context",
+                    credentials=("cloudzero_email",),
+                    optional_credentials=("username", "password"),
+                    optional=True,
+                )
+            }
+        )
+
+        ok = await dispatcher.login(
+            "cloudzero",
+            context=context,
+            credentials=AuthCredentials(cloudzero_email="cloud@example.com"),
+        )
+
+        self.assertTrue(ok)
+        strategy.assert_awaited_once_with(context, "cloud@example.com", "", "")
+
     async def test_context_strategy_dispatches_with_credentials(self) -> None:
         strategy = AsyncMock(return_value=True)
         context = object()

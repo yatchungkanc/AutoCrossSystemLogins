@@ -1,0 +1,4 @@
+.manual-login-profile/
+__pycache__/
+*.py[cod]
+
