@@ -3,7 +3,11 @@ import logging
 
 from playwright.async_api import BrowserContext
 
-from .common import handle_microsoft_account_picker, run_email_login_strategy
+from .common import (
+    _wait_for_redirect_to_settle,
+    handle_microsoft_account_picker,
+    run_email_login_strategy,
+)
 from .config import CLOUDHEALTH_LOGIN, CLOUDZERO_LOGIN
 
 logger = logging.getLogger(__name__)
@@ -63,9 +67,13 @@ async def login_cloudzero(context: BrowserContext, email: str) -> bool:
 
             await page.wait_for_load_state("load")
             await asyncio.sleep(1)
+            await _wait_for_redirect_to_settle(page, CLOUDZERO_LOGIN)
 
             logger.info(f"  → CloudZero login flow ended on: {page.url}")
-            return True
+            ok = CLOUDZERO_LOGIN.redirect_complete(page.url)
+            if not ok:
+                logger.warning(f"  → CloudZero login did not finish on an app URL: {page.url}")
+            return ok
         except Exception as exc:
             logger.warning(f"  → CloudZero login failed: {exc}")
             return False

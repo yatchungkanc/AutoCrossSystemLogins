@@ -3,5 +3,10 @@
     "isort.importStrategy": "fromEnvironment",
     "isort.interpreter": [
         "${userHome}/.pyenv/versions/dashboard-agent/bin/python"
-    ]
+    ],
+    "python.testing.pytestArgs": [
+        "dashboard-agent/tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }

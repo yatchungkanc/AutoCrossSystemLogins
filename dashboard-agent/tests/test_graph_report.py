@@ -302,8 +302,8 @@ class ScreenshotCaptureSelectionTests(unittest.TestCase):
         self.assertGreater(screenshot_capture._url_match_score(url, url), 0)
 
     def test_url_match_accepts_query_reordering_and_extra_query(self) -> None:
-        requested = "https://app.cloudzero.com/explorer?activeCostType=amortized_cost&granularity=monthly"
-        existing = "https://app.cloudzero.com/explorer?showRightFlyout=filters&granularity=monthly&activeCostType=amortized_cost"
+        requested = "https://next.cloudzero.com/explorer?activeCostType=amortized_cost&granularity=monthly"
+        existing = "https://next.cloudzero.com/explorer?showRightFlyout=filters&granularity=monthly&activeCostType=amortized_cost"
 
         self.assertGreater(screenshot_capture._url_match_score(requested, existing), 0)
 
@@ -325,9 +325,14 @@ class ScreenshotCaptureSelectionTests(unittest.TestCase):
                 "https://app.cloudzero.com/analytics/dashboards/32955/view"
             )
         )
+        self.assertTrue(
+            screenshot_capture._is_dashboard_view_url(
+                "https://next.cloudzero.com/analytics/dashboards/32955/view"
+            )
+        )
         self.assertFalse(
             screenshot_capture._is_dashboard_view_url(
-                "https://app.cloudzero.com/explorer?activeCostType=discounted_amortized_cost"
+                "https://next.cloudzero.com/explorer?activeCostType=discounted_amortized_cost"
             )
         )
 

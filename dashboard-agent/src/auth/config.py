@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Awaitable, Callable
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -40,16 +41,36 @@ CLOUDHEALTH_LOGIN = EmailLoginConfig(
     post_redirect_stable_ms=8000,  # Allow the CloudHealth -> Broadcom -> CloudHealth cycle to settle.
 )
 
+
+def _is_cloudzero_app_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.hostname in {"app.cloudzero.com", "next.cloudzero.com"}
+
+
+def _is_cloudzero_initial_app_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return _is_cloudzero_app_url(url) and parsed.path in {"", "/"}
+
+
+def _is_cloudzero_logged_in_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return (
+        _is_cloudzero_app_url(url)
+        and not _is_cloudzero_initial_app_url(url)
+        and "/login" not in parsed.path
+    )
+
+
 CLOUDZERO_LOGIN = EmailLoginConfig(
     provider_name="CloudZero",
-    login_url="https://app.cloudzero.com/",
+    login_url="https://next.cloudzero.com/",
     email_selector='input[type="email"], input[name="username"], input[name="email"]',
     submit_selector=(
         'button[type="submit"], input[type="submit"], '
         'button:has-text("Continue"), button:has-text("Next"), button:has-text("Sign In")'
     ),
-    already_logged_in=lambda url: "auth.cloudzero.com" not in url and "/login" not in url,
-    redirect_complete=lambda url: "auth.cloudzero.com" not in url and "microsoftonline.com" not in url,
+    already_logged_in=_is_cloudzero_logged_in_url,
+    redirect_complete=_is_cloudzero_logged_in_url,
     use_first_email_field=True,
     redirect_timeout_ms=60000,  # CloudZero SSO redirects can take longer on cold sessions.
 )

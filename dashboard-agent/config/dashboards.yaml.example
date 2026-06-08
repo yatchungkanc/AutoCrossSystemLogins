@@ -52,7 +52,7 @@ dashboards:
   - id: cloudzero-dashboard
     name: "CloudZero"
     auth_type: cloudzero
-    url: "https://app.cloudzero.com/analytics/dashboards/<dashboard-id>/view"
+    url: "https://next.cloudzero.com/explorer"
 
   - id: smartsheet-dashboard
     name: "Smartsheet"

@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 from .common import (
     authenticate_microsoft_sso,
     run_email_login_strategy,
     select_microsoft_account,
+    wait_for_redirect_to_settle,
 )
 from .models import EmailLoginConfig
 
@@ -36,16 +38,36 @@ CLOUDHEALTH_LOGIN = EmailLoginConfig(
     post_redirect_stable_ms=8000,
 )
 
+
+def _is_cloudzero_app_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.hostname in {"app.cloudzero.com", "next.cloudzero.com"}
+
+
+def _is_cloudzero_initial_app_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return _is_cloudzero_app_url(url) and parsed.path in {"", "/"}
+
+
+def _is_cloudzero_logged_in_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return (
+        _is_cloudzero_app_url(url)
+        and not _is_cloudzero_initial_app_url(url)
+        and "/login" not in parsed.path
+    )
+
+
 CLOUDZERO_LOGIN = EmailLoginConfig(
     provider_name="CloudZero",
-    login_url="https://app.cloudzero.com/",
+    login_url="https://next.cloudzero.com/",
     email_selector='input[type="email"], input[name="username"], input[name="email"]',
     submit_selector=(
         'button[type="submit"], input[type="submit"], '
         'button:has-text("Continue"), button:has-text("Next"), button:has-text("Sign In")'
     ),
-    already_logged_in=lambda url: "auth.cloudzero.com" not in url and "/login" not in url,
-    redirect_complete=lambda url: "auth.cloudzero.com" not in url and "microsoftonline.com" not in url,
+    already_logged_in=_is_cloudzero_logged_in_url,
+    redirect_complete=_is_cloudzero_logged_in_url,
     use_first_email_field=True,
     redirect_timeout_ms=60000,
 )
@@ -270,10 +292,14 @@ async def login_cloudzero(
 
             await page.wait_for_load_state("load")
             await asyncio.sleep(1)
+            await wait_for_redirect_to_settle(page, CLOUDZERO_LOGIN)
             if landing_url and page.url != landing_url:
                 await page.goto(landing_url)
                 await page.wait_for_load_state("load")
-            return True
+            ok = CLOUDZERO_LOGIN.redirect_complete(page.url)
+            if not ok:
+                logger.warning("CloudZero login did not finish on an app URL: %s", page.url)
+            return ok
         except Exception as exc:
             logger.warning("CloudZero login failed: %s", exc)
             return False

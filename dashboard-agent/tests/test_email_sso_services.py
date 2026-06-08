@@ -26,6 +26,56 @@ class EmailServiceTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_cloudzero_redirect_complete_requires_cloudzero_app_domain(self) -> None:
+        self.assertFalse(
+            email_sso_services.CLOUDZERO_LOGIN.redirect_complete(
+                "https://sso.example.com/saml/redirect"
+            )
+        )
+        self.assertFalse(
+            email_sso_services.CLOUDZERO_LOGIN.redirect_complete(
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+            )
+        )
+        self.assertFalse(
+            email_sso_services.CLOUDZERO_LOGIN.redirect_complete(
+                "https://auth.cloudzero.com/u/login/"
+            )
+        )
+        self.assertTrue(
+            email_sso_services.CLOUDZERO_LOGIN.redirect_complete(
+                "https://next.cloudzero.com/explorer?date_range=last_30_days"
+            )
+        )
+        self.assertTrue(
+            email_sso_services.CLOUDZERO_LOGIN.redirect_complete(
+                "https://app.cloudzero.com/analytics/dashboards/32955/view"
+            )
+        )
+
+    def test_cloudzero_initial_app_url_is_not_already_logged_in(self) -> None:
+        self.assertFalse(
+            email_sso_services.CLOUDZERO_LOGIN.already_logged_in(
+                "https://app.cloudzero.com/"
+            )
+        )
+        self.assertFalse(
+            email_sso_services.CLOUDZERO_LOGIN.already_logged_in(
+                "https://next.cloudzero.com/"
+            )
+        )
+        self.assertTrue(
+            email_sso_services.CLOUDZERO_LOGIN.already_logged_in(
+                "https://next.cloudzero.com/explorer?date_range=last_30_days"
+            )
+        )
+
+    def test_cloudzero_login_starts_on_next_domain(self) -> None:
+        self.assertEqual(
+            email_sso_services.CLOUDZERO_LOGIN.login_url,
+            "https://next.cloudzero.com/",
+        )
+
     async def test_login_cloudhealth_delegates_to_shared_email_strategy(self) -> None:
         context = object()
 

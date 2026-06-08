@@ -271,9 +271,9 @@ async def run(chrome: str, filters: list[str] | None = None) -> bool:
 
         # Context-based strategies after (open their own page, benefit from established SSO)
         # Run sequentially and clean up any lingering tabs between services so each
-        # auth flow gets its own isolated window — prevents Atlassian from appearing
-        # in the same tab as a still-in-progress CloudHealth SSO redirect.
-        for auth_type in [t for t in ("cloudhealth", "cloudzero", "atlassian") if t in required_auth]:
+        # auth flow gets its own isolated window and CloudZero starts only after
+        # Atlassian has finished its redirect flow.
+        for auth_type in [t for t in ("cloudhealth", "atlassian", "cloudzero") if t in required_auth]:
             logger.info(f"[1/3] Authenticating: {auth_type}...")
             auth_results[auth_type] = await _dispatch_auth(auth_type, page, context, creds)
             logger.info(f"[1/3] {auth_type}: {'ok' if auth_results[auth_type] else 'FAILED'}.")

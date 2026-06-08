@@ -127,12 +127,12 @@ ok = await login_cloudzero(
     email="user@example.com",
     sso_username="user@example.com",
     sso_password="secret",
-    landing_url="https://app.cloudzero.com/",
+    landing_url="https://next.cloudzero.com/explorer",
 )
 
 if ok:
     page = await context.new_page()
-    await page.goto("https://app.cloudzero.com/")
+    await page.goto("https://next.cloudzero.com/explorer")
 ```
 
 For deep links, pass the full landing URL. Quote it in shell commands if it contains `&`.
@@ -189,7 +189,7 @@ ok = await login(
     "cloudzero",
     context=context,
     credentials=credentials,
-    landing_url="https://app.cloudzero.com/",
+    landing_url="https://next.cloudzero.com/explorer",
 )
 ```
 
@@ -258,12 +258,12 @@ async def main() -> None:
             "cloudzero",
             context=context,
             credentials=credentials,
-            landing_url="https://app.cloudzero.com/",
+            landing_url="https://next.cloudzero.com/explorer",
         )
 
         if ok:
             page = await context.new_page()
-            await page.goto("https://app.cloudzero.com/")
+            await page.goto("https://next.cloudzero.com/explorer")
             input("Inspect the browser, then press ENTER to close...")
 
         await context.close()
@@ -288,7 +288,7 @@ From the AutoCrossSystemLogins repo:
 ```bash
 python login-automation/scripts/manual_login_test.py cloudzero \
   --env-file dashboard-agent/.env \
-  --landing-url "https://app.cloudzero.com/"
+  --landing-url "https://next.cloudzero.com/explorer"
 ```
 
 For a Tableau deep link:
@@ -328,7 +328,7 @@ Context-based wrappers may authenticate in a temporary page and close it. Open y
 ```python
 if ok:
     page = await context.new_page()
-    await page.goto("https://app.cloudzero.com/")
+    await page.goto("https://next.cloudzero.com/explorer")
 ```
 
 For CloudZero, pass `landing_url` to the dispatcher or direct wrapper.
@@ -342,7 +342,7 @@ await login(
     "cloudzero",
     context=context,
     credentials=credentials,
-    landing_url="https://app.cloudzero.com/explorer",
+    landing_url="https://next.cloudzero.com/explorer",
 )
 ```
 
@@ -351,5 +351,5 @@ await login(
 Quote URLs that contain `&`, `?`, or `#`:
 
 ```bash
---landing-url "https://app.cloudzero.com/explorer?date_range=last_30_days&cost_type=real_cost"
+--landing-url "https://next.cloudzero.com/explorer?date_range=last_30_days&cost_type=real_cost"
 ```

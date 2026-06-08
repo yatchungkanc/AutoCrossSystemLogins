@@ -62,7 +62,12 @@ class ProviderWrapperTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    def test_cloudzero_redirect_rejects_auth_and_microsoft_domains(self) -> None:
+    def test_cloudzero_redirect_requires_cloudzero_app_domain(self) -> None:
+        self.assertFalse(
+            providers.CLOUDZERO_LOGIN.redirect_complete(
+                "https://sso.example.test/saml/redirect"
+            )
+        )
         self.assertFalse(
             providers.CLOUDZERO_LOGIN.redirect_complete(
                 "https://auth.cloudzero.com/u/login"
@@ -77,6 +82,30 @@ class ProviderWrapperTests(unittest.IsolatedAsyncioTestCase):
             providers.CLOUDZERO_LOGIN.redirect_complete(
                 "https://app.cloudzero.com/explorer"
             )
+        )
+        self.assertTrue(
+            providers.CLOUDZERO_LOGIN.redirect_complete(
+                "https://next.cloudzero.com/explorer"
+            )
+        )
+
+    def test_cloudzero_initial_app_url_is_not_already_logged_in(self) -> None:
+        self.assertFalse(
+            providers.CLOUDZERO_LOGIN.already_logged_in("https://app.cloudzero.com/")
+        )
+        self.assertFalse(
+            providers.CLOUDZERO_LOGIN.already_logged_in("https://next.cloudzero.com/")
+        )
+        self.assertTrue(
+            providers.CLOUDZERO_LOGIN.already_logged_in(
+                "https://next.cloudzero.com/explorer"
+            )
+        )
+
+    def test_cloudzero_login_starts_on_next_domain(self) -> None:
+        self.assertEqual(
+            providers.CLOUDZERO_LOGIN.login_url,
+            "https://next.cloudzero.com/",
         )
 
     async def test_cloudzero_sso_helper_uses_credentials_on_microsoft_url(self) -> None:
@@ -114,7 +143,10 @@ class ProviderWrapperTests(unittest.IsolatedAsyncioTestCase):
         context = AsyncMock()
         context.new_page = AsyncMock(return_value=page)
 
-        with patch.object(providers.asyncio, "sleep", new=AsyncMock()):
+        with (
+            patch.object(providers.asyncio, "sleep", new=AsyncMock()),
+            patch.object(providers, "wait_for_redirect_to_settle", new=AsyncMock()),
+        ):
             ok = await providers.login_cloudzero(
                 context,
                 "person@example.com",
