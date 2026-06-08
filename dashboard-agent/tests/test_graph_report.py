@@ -190,6 +190,24 @@ class GraphReportGenerationTests(unittest.TestCase):
 
 
 class GraphReportAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cloudzero_url_capture_host_detection(self) -> None:
+        self.assertTrue(
+            graph_report._is_cloudzero_capture_url(
+                "https://app.cloudzero.com/analytics/dashboards/32955/view"
+            )
+        )
+        self.assertTrue(
+            graph_report._is_cloudzero_capture_url(
+                "https://next.cloudzero.com/explorer?date_range=last_30_days"
+            )
+        )
+        self.assertFalse(
+            graph_report._is_cloudzero_capture_url(
+                "https://eu-west-1a.online.tableau.com/views/Security"
+            )
+        )
+        self.assertFalse(graph_report._is_cloudzero_capture_url(None))
+
     async def test_resolves_url_sources_to_individual_captured_graphs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -202,7 +220,7 @@ class GraphReportAgentTests(unittest.IsolatedAsyncioTestCase):
 
             sources = parse_graph_sources([
                 f"Local Graph={local_path}",
-                "Dashboard=https://example.com/dashboard",
+                "Dashboard=https://next.cloudzero.com/explorer",
             ])
             agent = graph_report.GraphReportAgent(sources=sources)
 
@@ -222,6 +240,54 @@ class GraphReportAgentTests(unittest.IsolatedAsyncioTestCase):
             )
             capture_mock.assert_awaited_once()
 
+    async def test_rejects_non_cloudzero_url_sources_before_capture(self) -> None:
+        sources = parse_graph_sources([
+            "Tableau=https://eu-west-1a.online.tableau.com/views/Security",
+        ])
+        agent = graph_report.GraphReportAgent(sources=sources)
+
+        with patch.object(
+            graph_report,
+            "capture_graphs_from_url",
+            new=AsyncMock(),
+        ) as capture_mock:
+            with self.assertRaises(GraphInputError):
+                await agent._resolve_graph_inputs()
+
+        capture_mock.assert_not_awaited()
+        self.assertEqual(agent.skipped_sources[0][0], "Tableau")
+        self.assertIn("restricted to CloudZero", agent.skipped_sources[0][1])
+
+    async def test_mixed_url_sources_capture_only_cloudzero_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            capture_path = tmp_path / "001_graph_0.png"
+            capture_path.write_text("captured")
+
+            sources = parse_graph_sources([
+                "Tableau=https://eu-west-1a.online.tableau.com/views/Security",
+                "CloudZero=https://app.cloudzero.com/analytics/dashboards/32955/view",
+            ])
+            agent = graph_report.GraphReportAgent(sources=sources)
+
+            with (
+                patch.object(graph_report, "TEMP_DIR", tmp_path / "captures"),
+                patch.object(
+                    graph_report,
+                    "capture_graphs_from_url",
+                    new=AsyncMock(return_value=([capture_path], {})),
+                ) as capture_mock,
+            ):
+                graphs = await agent._resolve_graph_inputs()
+
+        self.assertEqual([graph.name for graph in graphs], ["CloudZero"])
+        capture_mock.assert_awaited_once()
+        self.assertEqual(
+            capture_mock.await_args.args[1],
+            "https://app.cloudzero.com/analytics/dashboards/32955/view",
+        )
+        self.assertEqual(agent.skipped_sources[0][0], "Tableau")
+
     async def test_skips_failed_url_source_when_other_graphs_exist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -230,7 +296,7 @@ class GraphReportAgentTests(unittest.IsolatedAsyncioTestCase):
 
             sources = parse_graph_sources([
                 f"Local Graph={local_path}",
-                "Broken Dashboard=https://example.com/dashboard",
+                "Broken Dashboard=https://next.cloudzero.com/explorer",
             ])
             agent = graph_report.GraphReportAgent(sources=sources)
 
@@ -251,7 +317,7 @@ class GraphReportAgentTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             sources = parse_graph_sources([
-                "Broken Dashboard=https://example.com/dashboard",
+                "Broken Dashboard=https://next.cloudzero.com/explorer",
             ])
             agent = graph_report.GraphReportAgent(sources=sources)
 
@@ -275,7 +341,7 @@ class GraphReportAgentTests(unittest.IsolatedAsyncioTestCase):
             second_capture.write_text("second")
 
             sources = parse_graph_sources([
-                "Dashboard=https://example.com/dashboard",
+                "Dashboard=https://next.cloudzero.com/explorer",
             ])
             agent = graph_report.GraphReportAgent(sources=sources)
 
@@ -400,6 +466,39 @@ class ScreenshotCaptureSelectionTests(unittest.TestCase):
 
         self.assertEqual(boxes, [])
 
+    def test_filter_table_candidates_accepts_detail_table(self) -> None:
+        boxes = screenshot_capture._filter_standalone_table_candidates([
+            {
+                "x": 20,
+                "y": 80,
+                "width": 1200,
+                "height": 520,
+                "rows": 20,
+                "cells": 160,
+                "text": "CVE Severity Asset Host Tanium Finding Remediation",
+                "signal": "tab-viz table",
+            },
+        ])
+
+        self.assertEqual(len(boxes), 1)
+        self.assertTrue(boxes[0]["tableOnly"])
+
+    def test_filter_table_candidates_rejects_filter_header(self) -> None:
+        boxes = screenshot_capture._filter_standalone_table_candidates([
+            {
+                "x": 20,
+                "y": 80,
+                "width": 1000,
+                "height": 140,
+                "rows": 3,
+                "cells": 12,
+                "text": "Add Filter Account Name Group By Time Range Cost Type",
+                "signal": "toolbar filters",
+            },
+        ])
+
+        self.assertEqual(boxes, [])
+
     def test_crop_scales_css_boxes_to_device_pixel_screenshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -421,6 +520,89 @@ class ScreenshotCaptureSelectionTests(unittest.TestCase):
             crop = Image.open(crops[0])
             self.assertEqual(crop.size, (200, 120))
             self.assertEqual(crop.getpixel((20, 20)), (20, 120, 200))
+
+
+class ScreenshotCaptureReadinessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_goto_for_capture_uses_domcontentloaded(self) -> None:
+        page = type("Page", (), {
+            "goto": AsyncMock(),
+        })()
+
+        await screenshot_capture._goto_for_capture(
+            page,
+            "https://next.cloudzero.com/explorer",
+        )
+
+        page.goto.assert_awaited_once_with(
+            "https://next.cloudzero.com/explorer",
+            wait_until="domcontentloaded",
+            timeout=screenshot_capture.CAPTURE_NAVIGATION_TIMEOUT_MS,
+        )
+
+    async def test_goto_for_capture_tolerates_non_login_timeout(self) -> None:
+        page = type("Page", (), {
+            "url": "https://next.cloudzero.com/explorer",
+            "goto": AsyncMock(side_effect=screenshot_capture.PlaywrightTimeoutError("timeout")),
+        })()
+
+        await screenshot_capture._goto_for_capture(
+            page,
+            "https://next.cloudzero.com/explorer",
+        )
+
+        page.goto.assert_awaited_once()
+
+    async def test_wait_for_initial_load_tolerates_load_timeout(self) -> None:
+        page = type("Page", (), {
+            "wait_for_load_state": AsyncMock(side_effect=[
+                None,
+                screenshot_capture.PlaywrightTimeoutError("timeout"),
+            ]),
+        })()
+
+        await screenshot_capture._wait_for_initial_load(page)
+
+        self.assertEqual(page.wait_for_load_state.await_count, 2)
+
+    async def test_readiness_fails_fast_for_stable_table_without_charts(self) -> None:
+        page = type("Page", (), {
+            "url": "https://eu-west-1a.online.tableau.com/views/TaniumFindingsDetails",
+            "frames": [],
+            "main_frame": object(),
+        })()
+        table_boxes = [{
+            "x": 20,
+            "y": 80,
+            "width": 1200,
+            "height": 520,
+            "rows": 20,
+            "cells": 160,
+            "tableOnly": True,
+        }]
+
+        with (
+            patch.object(
+                screenshot_capture,
+                "_visible_loading_indicator_count",
+                new=AsyncMock(return_value=0),
+            ),
+            patch.object(
+                screenshot_capture,
+                "_collect_ready_boxes",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(
+                screenshot_capture,
+                "_collect_ready_table_boxes",
+                new=AsyncMock(return_value=table_boxes),
+            ),
+        ):
+            with self.assertRaisesRegex(ScreenshotCaptureError, "Stable data table"):
+                await screenshot_capture._wait_for_capture_ready(
+                    page,
+                    timeout_ms=5_000,
+                    poll_ms=1,
+                )
 
 
 class DashboardGroupSourceTests(unittest.TestCase):

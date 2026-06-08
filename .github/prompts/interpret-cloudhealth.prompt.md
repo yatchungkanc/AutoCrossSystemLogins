@@ -13,7 +13,7 @@ For graph analysis and reporting, use the generic **graph-report** command inste
 
 ```bash
 python run.py graph-report --graph "Name=/path/to/graph.png"
-python run.py graph-report --graph "Name=https://dashboard.example/view"
+python run.py graph-report --graph "Name=https://next.cloudzero.com/explorer?..."
 ```
 
 See [dashboard-agent/README.md](../../dashboard-agent/README.md#graph-report-generator) for full documentation.

@@ -43,6 +43,8 @@ python run.py graph-report --graph "Name=/path/to/graph.png"  # Generate graph r
 python run.py graph-report ops-metrics cloudzero-dashboard     # Report from dashboard groups
 ```
 
+Graph-report URL capture is CloudZero-only (`app.cloudzero.com` and `next.cloudzero.com`). Use local image inputs for non-CloudZero dashboards.
+
 Tests live in `tests/` and use `pytest`. Run with `pytest` from `dashboard-agent/`. For async Playwright tests, use `pytest-asyncio`.
 
 ## Key Conventions

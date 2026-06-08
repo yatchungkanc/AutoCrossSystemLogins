@@ -102,7 +102,7 @@ source .venv/bin/activate
 python run.py                          # open all dashboards
 python run.py --list                   # list available dashboard groups
 python run.py graph-report --graph "Name=/path/to/graph.png"
-python run.py graph-report --graph "Name=https://dashboard.example/report"
+python run.py graph-report --graph "Name=https://next.cloudzero.com/explorer?..."
 python run.py graph-report ops-metrics cloudzero-dashboard
 python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
@@ -173,7 +173,7 @@ python run.py                                # open all dashboards
 python run.py --list                         # list available dashboard groups
 python run.py <id-or-name> [<id-or-name>...] # open matching dashboard groups only
 python run.py graph-report --graph "Name=/path/to/graph.png"
-python run.py graph-report --graph "Name=https://dashboard.example/report"
+python run.py graph-report --graph "Name=https://next.cloudzero.com/explorer?..."
 python run.py graph-report ops-metrics cloudzero-dashboard
 python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
@@ -184,7 +184,7 @@ The agent will:
 3. Open all configured dashboards as tabs with progress logging
 4. Disconnect and exit — browser stays open for you to use
 
-When the requested launch includes both `ops-metrics` and `cloudzero-dashboard`, `run.py` automatically runs a graph report for those two groups after all requested tabs open successfully. If any requested tab fails to open, the automatic graph report is skipped.
+Graph reports are generated only when you explicitly run `python run.py graph-report ...`.
 
 Example output:
 
@@ -209,14 +209,14 @@ Connected.
 
 ## Graph Report Generator
 
-The graph report generator analyzes one or more caller-provided graph image files, dashboard URLs, or dashboard groups from `dashboards.yaml` with the Copilot CLI and produces a generic HTML report. Local image inputs go straight to analysis; URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
+The graph report generator analyzes one or more caller-provided graph image files, CloudZero URLs, or dashboard groups from `dashboards.yaml` with the Copilot CLI and produces a generic HTML report. Local image inputs go straight to analysis; CloudZero URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
 
 ### Usage
 
 ```bash
 python run.py graph-report \
   --graph "AWS Account Vulnerability Trends=/tmp/trends.png" \
-  --graph "Budget Forecast=https://app.powerbi.com/groups/me/reports/..." \
+  --graph "CloudZero Product Spend=https://next.cloudzero.com/explorer?..." \
   --focus "anomalies, trend changes" \
   --title "Weekly Graph Review"
 
@@ -224,7 +224,7 @@ python run.py graph-report ops-metrics cloudzero-dashboard
 python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
 
-Each `--graph` value must use `Name=/path/to/image-or-url`. The graph name is the friendly label shown in the report; filenames are treated as internal implementation details. During analysis, each resolved graph also gets a deterministic ID such as `G001` or `G002`, and Copilot is instructed to use those IDs in the markdown table so report thumbnails can be linked exactly. Dashboard groups can be supplied as positional group filters or repeated `--group ID_OR_NAME` values. URL capture requires a running browser session from `python run.py`.
+Each `--graph` value must use `Name=/path/to/image-or-url`. The graph name is the friendly label shown in the report; filenames are treated as internal implementation details. During analysis, each resolved graph also gets a deterministic ID such as `G001` or `G002`, and Copilot is instructed to use those IDs in the markdown table so report thumbnails can be linked exactly. Dashboard groups can be supplied as positional group filters or repeated `--group ID_OR_NAME` values. URL capture is restricted to `app.cloudzero.com` and `next.cloudzero.com` and requires a running browser session from `python run.py`; other URL hosts are skipped with a warning.
 
 ### Architecture & Modules
 
@@ -243,7 +243,7 @@ The report generator is split into reusable modules:
 ### Workflow
 
 1. **Validate Inputs**: Require at least one graph, non-empty unique graph names, and either existing local files or HTTP(S) URLs.
-2. **Capture URL Inputs**: Reuse an already-open tab when the normalized URL matches; otherwise open a new tab in the existing CDP browser session. Crop reliable chart, dashboard tile, or no-results panels into individual images.
+2. **Capture CloudZero URL Inputs**: Reuse an already-open tab when the normalized URL matches; otherwise open a new tab in the existing CDP browser session. Crop reliable chart, dashboard tile, or no-results panels into individual images. Non-CloudZero URL hosts are logged as skipped.
 3. **Analyze**: Invoke `copilot -p --allow-all-tools` with Graph IDs, graph names, and image paths.
 4. **Generate Report**: Convert Copilot markdown to HTML using the report template and exact Graph ID mappings.
 5. **Copy Graph Assets**: Save graph images beside the report using stable sanitized filenames.
@@ -252,7 +252,9 @@ The report generator is split into reusable modules:
 
 `screenshot_capture.py` is intentionally conservative. It waits for chart candidates to stabilize, avoids login pages and loading skeletons, and skips unreliable pages instead of analyzing header bars or filter rows as graphs.
 
-For direct chart URLs, the detector accepts real SVG/canvas chart containers and valid "No results" panels. For CloudZero Explorer, it recognizes `.ag-charts-canvas-container` and extends the crop to include the related `.ag-center-cols-container` data table below the chart when present.
+URL capture only runs for `app.cloudzero.com` and `next.cloudzero.com`. Non-CloudZero URLs are skipped with a warning so local image inputs and valid CloudZero captures can still be analyzed.
+
+For direct CloudZero chart URLs, the detector accepts real SVG/canvas chart containers and valid "No results" panels. For CloudZero Explorer, it recognizes `.ag-charts-canvas-container` and extends the crop to include the related `.ag-center-cols-container` data table below the chart when present.
 
 For dashboard collection URLs whose path ends in `/view`, the detector treats the page as a dashboard view. CloudZero embeds these dashboards in a frame, so readiness and capture inspect both the main page and frames. Each `div#styled-tile-dashboard` tile is captured as its own graph image, including tiles that intentionally show "No results". The newer CloudZero layout is also supported by prioritizing `main[data-scroll-container="main"]` and recognizing Chakra UI table panels marked with `data-testid="table-root"`.
 
@@ -268,7 +270,7 @@ GitHub Copilot CLI must be installed and in your PATH:
 gh extension install github/gh-copilot
 ```
 
-For URL inputs, start the browser/auth session first:
+For CloudZero URL inputs, start the browser/auth session first:
 
 ```bash
 python run.py

@@ -6,7 +6,7 @@ Usage:
     python run.py --list                              # List available dashboard groups
     python run.py <id-or-name> [<id-or-name> ...]     # Launch matching dashboards only
     python run.py graph-report --graph "Name=/path/to/graph.png"
-    python run.py graph-report --graph "Name=https://dashboard.example/report"
+    python run.py graph-report --graph "Name=https://next.cloudzero.com/explorer?..."
     python run.py graph-report ops-metrics cloudzero-dashboard
     python run.py graph-report --group ops-metrics --group cloudzero-dashboard
     python run.py graph-report --graph "Name=/path/to/graph.png" --focus "anomalies"

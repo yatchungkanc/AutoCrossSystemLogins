@@ -29,4 +29,4 @@ Open any `.html` file in your browser to view the report.
 
 ## Captures
 
-Graph-report URL captures are stored under `output/temp/` while the report is being built, then copied into the final `<report>_graphs/` folder and cleaned up. CloudZero dashboard `/view` URLs can produce multiple tile captures; CloudZero Explorer URLs can capture the chart plus its related data table, including newer Chakra UI table panels marked with `data-testid="table-root"`.
+Graph-report URL capture is restricted to CloudZero hosts (`app.cloudzero.com` and `next.cloudzero.com`). Captures are stored under `output/temp/` while the report is being built, then copied into the final `<report>_graphs/` folder and cleaned up. CloudZero dashboard `/view` URLs can produce multiple tile captures; CloudZero Explorer URLs can capture the chart plus its related data table, including newer Chakra UI table panels marked with `data-testid="table-root"`.

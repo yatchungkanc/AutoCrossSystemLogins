@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-06-08 - CloudZero-Only Graph URL Capture
+
+### Changes
+- Restricted graph-report URL capture to `app.cloudzero.com` and `next.cloudzero.com`.
+- Non-CloudZero URL inputs are now skipped with a warning while local images and valid CloudZero captures continue through report generation.
+- Documented that graph reports run only when explicitly requested with `python run.py graph-report ...`.
+- Updated graph-report usage examples to use CloudZero URLs for URL capture and local image files for non-CloudZero dashboards.
+
+### Files Modified
+- `run.py`
+- `README.md`
+- `dashboard-agent/README.md`
+- `dashboard-agent/output/README.md`
+- `.github/copilot-instructions.md`
+- `.github/prompts/interpret-cloudhealth.prompt.md`
+
+---
+
 ## 2026-05-05 - Deterministic Graph Image Linking
 
 ### Changes

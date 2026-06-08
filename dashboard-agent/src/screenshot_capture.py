@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 from PIL import Image
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright, Page
 import yaml
 
@@ -34,6 +35,8 @@ _LOGIN_DOMAINS = (
     "sso.online.tableau.com",
 )
 _VOLATILE_QUERY_KEYS = {"iid", "session", "authuser", "prompt"}
+CAPTURE_NAVIGATION_TIMEOUT_MS = 60_000
+CAPTURE_LOAD_STATE_TIMEOUT_MS = 10_000
 
 
 def _is_login_redirect(url: str) -> bool:
@@ -112,6 +115,44 @@ def _is_dashboard_view_url(url: str) -> bool:
     return parsed.path.rstrip("/").endswith("/view")
 
 
+async def _goto_for_capture(page: Page, url: str) -> None:
+    """Navigate for capture without requiring SPA pages to fire the full load event."""
+    try:
+        await page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=CAPTURE_NAVIGATION_TIMEOUT_MS,
+        )
+    except PlaywrightTimeoutError:
+        current_url = getattr(page, "url", "")
+        if current_url and not _is_login_redirect(current_url):
+            logger.warning(
+                "Navigation timed out before DOMContentLoaded; continuing from current URL: %s",
+                current_url,
+            )
+            return
+        raise
+
+
+async def _wait_for_initial_load(page: Page) -> None:
+    """Wait briefly for load states, but let readiness detection decide final capture timing."""
+    try:
+        await page.wait_for_load_state(
+            "domcontentloaded",
+            timeout=CAPTURE_LOAD_STATE_TIMEOUT_MS,
+        )
+    except PlaywrightTimeoutError:
+        logger.info("DOM content did not report ready before timeout; continuing...")
+
+    try:
+        await page.wait_for_load_state(
+            "load",
+            timeout=CAPTURE_LOAD_STATE_TIMEOUT_MS,
+        )
+    except PlaywrightTimeoutError:
+        logger.info("Load event did not complete before timeout; continuing...")
+
+
 async def verify_browser_connection(cdp_port: int = 9222) -> bool:
     """Verify that browser session is running and accessible."""
     logger.info("Verifying browser session...")
@@ -159,6 +200,8 @@ async def capture_graphs_from_url(
     pw = await async_playwright().start()
     screenshots: list[Path] = []
     page_info: dict = {}
+    page: Page | None = None
+    opened_page = False
 
     try:
         try:
@@ -175,10 +218,11 @@ async def capture_graphs_from_url(
         else:
             logger.info(f"Opening new tab for {name}...")
             page = await context.new_page()
-            await page.goto(url)
+            opened_page = True
+            await _goto_for_capture(page, url)
 
         logger.info("Waiting for page to load...")
-        await page.wait_for_load_state("load")
+        await _wait_for_initial_load(page)
         try:
             await page.wait_for_load_state("networkidle", timeout=10000)
         except Exception:
@@ -216,6 +260,11 @@ async def capture_graphs_from_url(
     except Exception as e:
         raise ScreenshotCaptureError(f"Unexpected error during URL graph capture: {e}") from e
     finally:
+        if opened_page and page is not None:
+            try:
+                await page.close()
+            except Exception as e:
+                logger.debug(f"Could not close temporary capture tab for {name}: {e}")
         await pw.stop()
 
 
@@ -328,7 +377,10 @@ async def _wait_for_capture_ready(
     deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
     previous_signature = None
     stable_ticks = 0
+    previous_table_signature = None
+    table_stable_ticks = 0
     last_boxes: list[dict] = []
+    last_table_boxes: list[dict] = []
     last_loading_count = 0
 
     while asyncio.get_running_loop().time() < deadline:
@@ -337,7 +389,9 @@ async def _wait_for_capture_ready(
 
         last_loading_count = await _visible_loading_indicator_count(page)
         last_boxes = await _collect_ready_boxes(page, dashboard_view)
+        last_table_boxes = await _collect_ready_table_boxes(page, dashboard_view)
         signature = _box_signature(last_boxes)
+        table_signature = _box_signature(last_table_boxes)
 
         if last_boxes and signature == previous_signature:
             stable_ticks += 1
@@ -345,9 +399,25 @@ async def _wait_for_capture_ready(
             stable_ticks = 0
             previous_signature = signature
 
+        if not last_boxes and last_table_boxes and table_signature == previous_table_signature:
+            table_stable_ticks += 1
+        else:
+            table_stable_ticks = 0
+            previous_table_signature = table_signature
+
         if last_boxes and stable_ticks >= 2 and last_loading_count == 0:
             logger.info(f"✓ Capture-ready charts detected ({len(last_boxes)} stable candidate(s))")
             return last_boxes
+
+        if (
+            not last_boxes
+            and last_table_boxes
+            and table_stable_ticks >= 2
+            and last_loading_count == 0
+        ):
+            raise ScreenshotCaptureError(
+                "Stable data table detected but no graph candidates were found"
+            )
 
         await asyncio.sleep(poll_ms / 1000)
 
@@ -358,6 +428,11 @@ async def _wait_for_capture_ready(
             len(last_boxes),
         )
         return last_boxes
+
+    if last_table_boxes and table_stable_ticks >= 1:
+        raise ScreenshotCaptureError(
+            "Stable data table detected but no graph candidates were found"
+        )
 
     raise ScreenshotCaptureError("No stable chart or no-results candidates were found before timeout")
 
@@ -372,6 +447,21 @@ async def _collect_ready_boxes(page: Page, dashboard_view: bool) -> list[dict]:
             boxes.extend(await _collect_capture_boxes(frame, dashboard_view, warn_on_fallback=False))
         except Exception as e:
             logger.debug(f"Could not collect readiness boxes from frame {frame.url}: {e}")
+    return boxes
+
+
+async def _collect_ready_table_boxes(page: Page, dashboard_view: bool) -> list[dict]:
+    """Collect standalone table candidates used to fail fast for non-graph pages."""
+    boxes = []
+    if not dashboard_view:
+        boxes = await _collect_standalone_table_boxes(page)
+    for frame in page.frames:
+        if frame is page.main_frame:
+            continue
+        try:
+            boxes.extend(await _collect_standalone_table_boxes(frame))
+        except Exception as e:
+            logger.debug(f"Could not collect readiness table boxes from frame {frame.url}: {e}")
     return boxes
 
 
@@ -730,6 +820,161 @@ async def _collect_capture_boxes(
         if warn_on_fallback:
             logger.warning("  Dashboard view tile detector found no tiles; trying chart detector")
     return await _collect_chart_boxes(page)
+
+
+async def _collect_standalone_table_boxes(page: Page) -> list[dict]:
+    """Return table-like content boxes used to identify non-graph detail pages."""
+    snapshot: dict = await page.evaluate("""
+        () => {
+            const viewportW = window.innerWidth || 1920;
+            const viewportH = window.innerHeight || 1080;
+
+            function rectOf(el) {
+                const r = el.getBoundingClientRect();
+                return {
+                    left: r.left,
+                    top: r.top,
+                    width: r.width,
+                    height: r.height,
+                    right: r.right,
+                    bottom: r.bottom
+                };
+            }
+
+            function classText(el) {
+                const cls = typeof el.className === 'string'
+                    ? el.className
+                    : (el.className && el.className.baseVal) || '';
+                return [
+                    cls,
+                    el.id || '',
+                    el.getAttribute('role') || '',
+                    el.getAttribute('data-testid') || '',
+                    el.getAttribute('aria-label') || '',
+                    el.getAttribute('data-test') || ''
+                ].join(' ');
+            }
+
+            function visible(el, r) {
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && r.width >= 320
+                    && r.height >= 140;
+            }
+
+            function rowCount(el) {
+                return el.querySelectorAll(
+                    'tr, [role="row"], .tab-row, .tab-vizRow, .ag-row, [class*="row" i]'
+                ).length;
+            }
+
+            function cellCount(el) {
+                return el.querySelectorAll(
+                    'td, th, [role="cell"], [role="gridcell"], .tab-cell, .tab-vizCell, .ag-cell, [class*="cell" i]'
+                ).length;
+            }
+
+            function tableLike(el) {
+                const signal = classText(el);
+                return el.tagName === 'TABLE'
+                    || ['table', 'grid', 'rowgroup'].includes(el.getAttribute('role') || '')
+                    || el.getAttribute('data-testid') === 'table-root'
+                    || /\\b(table|grid|data-grid|ag-grid|tab-tv|tab-viz|tabular|datatable|dataTable|worksheet)\\b/i.test(signal);
+            }
+
+            function usefulTableText(el) {
+                const text = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+                return /(CVE|Vulnerab|Severity|Finding|Tanium|Asset|Host|Account|Package|Title|Status|Owner|Due Date|Total|Count|Risk|Remediation)/i.test(text);
+            }
+
+            const raw = [...document.querySelectorAll(
+                'table, [role="table"], [role="grid"], [role="rowgroup"], [data-testid="table-root"], ' +
+                '.ag-center-cols-container, [class*="table" i], [class*="grid" i], [class*="tab-tv" i], [class*="tab-viz" i], [class*="datatable" i]'
+            )];
+
+            const candidates = raw
+                .map(el => ({
+                    el,
+                    r: rectOf(el),
+                    rows: rowCount(el),
+                    cells: cellCount(el),
+                    text: (el.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 360),
+                    signal: classText(el),
+                    hasChart: !!el.querySelector('svg, canvas, .ag-charts-canvas-container')
+                }))
+                .filter(item => visible(item.el, item.r))
+                .filter(item => !item.hasChart)
+                .filter(item => tableLike(item.el) || item.rows >= 4 || item.cells >= 8)
+                .filter(item => item.rows >= 3 || item.cells >= 8 || usefulTableText(item.el))
+                .map(item => ({
+                    x: Math.max(0, item.r.left + window.scrollX),
+                    y: Math.max(0, item.r.top + window.scrollY),
+                    width: item.r.width,
+                    height: item.r.height,
+                    rows: item.rows,
+                    cells: item.cells,
+                    text: item.text,
+                    signal: item.signal,
+                    tableOnly: true
+                }));
+
+            return {
+                viewportWidth: viewportW,
+                viewportHeight: viewportH,
+                candidates
+            };
+        }
+    """)
+
+    return _filter_standalone_table_candidates(
+        snapshot.get("candidates", []),
+        int(snapshot.get("viewportWidth", 1920) or 1920),
+        int(snapshot.get("viewportHeight", 1080) or 1080),
+    )
+
+
+def _filter_standalone_table_candidates(
+    candidates: list[dict],
+    viewport_width: int = 1920,
+    viewport_height: int = 1080,
+) -> list[dict]:
+    valid = []
+    for candidate in candidates:
+        width = float(candidate.get("width", 0) or 0)
+        height = float(candidate.get("height", 0) or 0)
+        rows = int(candidate.get("rows", 0) or 0)
+        cells = int(candidate.get("cells", 0) or 0)
+        if width < 320 or height < 120:
+            continue
+        if width >= viewport_width * 0.98 and height >= viewport_height * 0.96:
+            continue
+        if rows < 3 and cells < 8:
+            continue
+
+        text = str(candidate.get("text", ""))
+        signal = str(candidate.get("signal", ""))
+        if _looks_like_filter_or_header(text, signal):
+            continue
+
+        valid.append({
+            "x": float(candidate.get("x", 0) or 0),
+            "y": float(candidate.get("y", 0) or 0),
+            "width": width,
+            "height": height,
+            "rows": rows,
+            "cells": cells,
+            "tableOnly": True,
+        })
+
+    valid.sort(key=lambda box: _box_area(box), reverse=True)
+    deduped = []
+    for candidate in valid:
+        if any(_box_iou(candidate, existing) > 0.82 for existing in deduped):
+            continue
+        deduped.append(candidate)
+
+    return sorted(deduped, key=lambda b: (b["y"], b["x"]))
 
 
 async def _collect_dashboard_tile_boxes(page: Page) -> list[dict]:

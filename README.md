@@ -84,7 +84,7 @@ python run.py                                      # Open all dashboards
 python run.py --list                               # List available dashboard groups
 python run.py <id-or-name> [<id-or-name> ...]      # Open matching dashboard groups only
 python run.py graph-report --graph "Name=/path/to/graph.png"
-python run.py graph-report --graph "Name=https://dashboard.example/report"
+python run.py graph-report --graph "Name=https://next.cloudzero.com/explorer?..."
 python run.py graph-report ops-metrics cloudzero-dashboard
 python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 python run.py graph-report --graph "Name=/path/to/graph.png" --focus "anomalies"
@@ -94,7 +94,7 @@ python run.py graph-report --graph "Name=/path/to/graph.png" --focus "anomalies"
 
 Launches a maximized Chromium window, authenticates (or skips if session is still valid), and opens every configured dashboard as a tab. The script exits and the browser stays open.
 
-When the configured launch includes both `ops-metrics` and `cloudzero-dashboard`, `run.py` automatically runs a graph report for those two groups after all requested tabs open successfully. If any tab fails to open, the automatic report is skipped.
+Graph reports are generated only when you explicitly run `python run.py graph-report ...`.
 
 ### Open specific dashboards
 
@@ -109,7 +109,7 @@ Run `python run.py --list` to see all available group IDs and names.
 
 ### Graph report
 
-Replaces the earlier CloudHealth-specific report flow. `graph-report` analyzes one or more local graph image files, dashboard URLs, or dashboard groups from `dashboards.yaml` and generates a generic HTML report. Local image inputs go straight to analysis; URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
+Replaces the earlier CloudHealth-specific report flow. `graph-report` analyzes one or more local graph image files, CloudZero URLs, or dashboard groups from `dashboards.yaml` and generates a generic HTML report. Local image inputs go straight to analysis; CloudZero URL inputs reuse an already-open browser tab when possible, otherwise they open a new tab in the existing Playwright browser session and capture reliable chart images before analysis.
 
 Requires the GitHub Copilot CLI to be installed:
 
@@ -119,7 +119,7 @@ gh extension install github/gh-copilot
 
 The report workflow:
 1. Validates one or more `--graph "Name=/path/to/image-or-url"` or dashboard group inputs
-2. Captures individual graph images for any URL inputs using the screenshot utility
+2. Captures individual graph images for CloudZero URL inputs using the screenshot utility
 3. Assigns deterministic graph IDs (`G001`, `G002`, etc.) and invokes `copilot -p` to analyze the graph images
 4. Generates a timestamped HTML report in `dashboard-agent/output/`
 5. Copies graph images into a relative `<report>_graphs/` folder next to the report
@@ -129,7 +129,7 @@ The report workflow:
 ```bash
 python run.py graph-report \
   --graph "AWS Account Vulnerability Trends=/tmp/trends.png" \
-  --graph "Budget Forecast=https://app.powerbi.com/groups/me/reports/..." \
+  --graph "CloudZero Product Spend=https://next.cloudzero.com/explorer?..." \
   --focus "anomalies, trend changes" \
   --title "Weekly Graph Review"
 ```
@@ -141,9 +141,10 @@ python run.py graph-report ops-metrics cloudzero-dashboard
 python run.py graph-report --group ops-metrics --group cloudzero-dashboard
 ```
 
-**Input**: Local graph/chart images or URLs, named by the caller, plus dashboard groups from `dashboards.yaml`. URL capture requires a running browser session from `python run.py`.
+**Input**: Local graph/chart images or CloudZero URLs, named by the caller, plus dashboard groups from `dashboards.yaml`. URL capture requires a running browser session from `python run.py`.
 
 **URL capture behavior**:
+- URL capture is restricted to `app.cloudzero.com` and `next.cloudzero.com`. Other URL hosts are skipped with a warning and report generation continues with remaining valid inputs.
 - Reuses an already-open tab when the normalized URL matches, including reordered or extra query parameters.
 - For CloudZero Explorer URLs, captures the chart plus the related data table below it when present.
 - For CloudZero dashboard `/view` URLs, captures each individual dashboard tile from the embedded dashboard frame using `div#styled-tile-dashboard`.

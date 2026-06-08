@@ -11,6 +11,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from src.analysis import (
     AnalysisError,
@@ -40,6 +41,14 @@ TEMP_DIR = OUTPUT_DIR / "temp"
 PROMPTS_CONFIG = CONFIG_DIR / "prompts.yaml"
 REPORT_TEMPLATE = CONFIG_DIR / "report_template.html"
 CDP_PORT = 9222
+CLOUDZERO_URL_CAPTURE_HOSTS = {"app.cloudzero.com", "next.cloudzero.com"}
+
+
+def _is_cloudzero_capture_url(url: str | None) -> bool:
+    if not url:
+        return False
+    hostname = (urlparse(url).hostname or "").lower()
+    return hostname in CLOUDZERO_URL_CAPTURE_HOSTS
 
 
 def graph_sources_from_dashboard_groups(groups: list[str]) -> list[GraphSource]:
@@ -162,6 +171,20 @@ class GraphReportAgent:
             self.temp_dir.mkdir(parents=True, exist_ok=True)
 
         for source_index, source in enumerate(url_sources, start=1):
+            if not _is_cloudzero_capture_url(source.url):
+                reason = (
+                    "URL graph capture is restricted to CloudZero URLs "
+                    "(app.cloudzero.com or next.cloudzero.com)."
+                )
+                self.skipped_sources.append((source.name, reason))
+                logger.warning(
+                    "Skipping graph source '%s': %s URL: %s",
+                    source.name,
+                    reason,
+                    source.url,
+                )
+                continue
+
             source_dir = self.temp_dir / f"{source_index:03d}_{_slugify(source.name)}"
             try:
                 captured_paths, _ = await capture_graphs_from_url(
@@ -275,14 +298,20 @@ def _name_captured_graphs(source_name: str, paths: list[Path]) -> list[GraphInpu
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python run.py graph-report",
-        description="Analyze one or more named graph image files or URLs and generate an HTML report.",
+        description=(
+            "Analyze one or more named graph image files or CloudZero URLs "
+            "and generate an HTML report."
+        ),
     )
     parser.add_argument(
         "--graph",
         action="append",
         default=[],
         metavar="NAME=PATH_OR_URL",
-        help="Named graph image or URL to analyze. Repeat for multiple inputs.",
+        help=(
+            "Named graph image or CloudZero URL to analyze. URL capture is "
+            "restricted to app.cloudzero.com and next.cloudzero.com. Repeat for multiple inputs."
+        ),
     )
     parser.add_argument(
         "--group",
