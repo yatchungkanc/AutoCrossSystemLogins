@@ -10,17 +10,25 @@ logger = logging.getLogger(__name__)
 
 # Max time to wait for SSO to fully complete (cert selection + device auth can be slow)
 SSO_TIMEOUT = 60000
+MICROSOFT_LOGIN_DOMAINS = (
+    "login.microsoftonline.com",
+    "device.login.microsoftonline.com",
+)
 
 
 async def wait_for_sso_complete(page: Page) -> None:
     """Wait until we leave the Microsoft login domain entirely."""
     try:
         await page.wait_for_url(
-            lambda url: "login.microsoftonline.com" not in url and "device.login.microsoftonline.com" not in url,
+            lambda url: not _is_microsoft_login_url(url),
             timeout=SSO_TIMEOUT,
         )
     except Exception:
         pass
+
+
+def _is_microsoft_login_url(url: str) -> bool:
+    return any(domain in url for domain in MICROSOFT_LOGIN_DOMAINS)
 
 
 async def authenticate_sso(page: Page, internal_username: str, password: str) -> None:
@@ -30,25 +38,67 @@ async def authenticate_sso(page: Page, internal_username: str, password: str) ->
     try:
         await username_field.wait_for(timeout=10000)
     except Exception:
-        logger.info("  → SSO session still valid, skipping login.")
-        return
+        if not _is_microsoft_login_url(page.url):
+            logger.info("  → SSO session still valid, skipping login.")
+            return
+
+        if await _submit_microsoft_password_if_present(page, password):
+            await _click_stay_signed_in_if_present(page)
+            await wait_for_sso_complete(page)
+            return
+
+        username_field = page.locator(
+            'input[type="email"], input[name="loginfmt"], #i0116'
+        ).first
+        try:
+            await username_field.wait_for(timeout=5000)
+        except Exception:
+            logger.info("  → SSO session still valid, skipping login.")
+            return
 
     logger.info("  → Entering username...")
     await username_field.fill(internal_username)
     await username_field.press("Enter")
     await page.wait_for_load_state("load")
 
-    logger.info("  → Entering password...")
-    pwd_field = page.get_by_role("textbox", name="Enter the password for")
-    await pwd_field.wait_for(timeout=10000)
-    await pwd_field.fill(password)
-    await page.get_by_role("button", name="Sign in").click()
-    logger.info("  → Authentication submitted")
+    await _submit_microsoft_password_if_present(page, password, timeout=10000)
 
     # Wait for page to settle (may redirect to device auth or stay signed in prompt)
     await page.wait_for_load_state("load")
     await asyncio.sleep(2)
 
+    await _click_stay_signed_in_if_present(page)
+
+    # Wait until we fully leave Microsoft domains
+    await wait_for_sso_complete(page)
+
+
+async def _submit_microsoft_password_if_present(
+    page: Page,
+    password: str,
+    timeout: int = 3000,
+) -> bool:
+    password_selectors = [
+        page.get_by_role("textbox", name="Enter the password for"),
+        page.locator('input[type="password"], input[name="passwd"], #i0118').first,
+    ]
+
+    for pwd_field in password_selectors:
+        try:
+            await pwd_field.wait_for(timeout=timeout)
+        except Exception:
+            continue
+
+        logger.info("  → Entering password...")
+        await pwd_field.fill(password)
+        await page.get_by_role("button", name="Sign in").click()
+        logger.info("  → Authentication submitted")
+        return True
+
+    return False
+
+
+async def _click_stay_signed_in_if_present(page: Page) -> None:
     # Handle "Stay signed in?" prompt — try multiple selector patterns
     for _ in range(3):
         try:
@@ -60,9 +110,6 @@ async def authenticate_sso(page: Page, internal_username: str, password: str) ->
                 break
         except Exception:
             await asyncio.sleep(1)
-
-    # Wait until we fully leave Microsoft domains
-    await wait_for_sso_complete(page)
 
 
 async def handle_microsoft_account_picker(page: Page, preferred_email: str) -> None:

@@ -1,6 +1,7 @@
 import unittest
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -93,6 +94,34 @@ class EmailServiceTests(unittest.IsolatedAsyncioTestCase):
             "person@example.com",
             email_sso_services.CLOUDHEALTH_LOGIN,
         )
+
+    async def test_cloudzero_sso_helper_uses_credentials_on_microsoft_url(self) -> None:
+        page = SimpleNamespace(url="https://login.microsoftonline.com/common")
+        auth_mock = AsyncMock()
+        original_authenticate = email_sso_services.authenticate_sso
+        email_sso_services.authenticate_sso = auth_mock
+        try:
+            await email_sso_services._authenticate_if_on_microsoft_sso(
+                page,
+                "user@example.com",
+                "secret",
+            )
+        finally:
+            email_sso_services.authenticate_sso = original_authenticate
+
+        auth_mock.assert_awaited_once_with(page, "user@example.com", "secret")
+
+    async def test_cloudzero_sso_helper_skips_without_credentials(self) -> None:
+        page = SimpleNamespace(url="https://login.microsoftonline.com/common")
+        auth_mock = AsyncMock()
+        original_authenticate = email_sso_services.authenticate_sso
+        email_sso_services.authenticate_sso = auth_mock
+        try:
+            await email_sso_services._authenticate_if_on_microsoft_sso(page, "", "")
+        finally:
+            email_sso_services.authenticate_sso = original_authenticate
+
+        auth_mock.assert_not_awaited()
 
 
 if __name__ == "__main__":

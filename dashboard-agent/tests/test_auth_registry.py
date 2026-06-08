@@ -83,6 +83,35 @@ class ExecuteAuthRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         fake_strategy.assert_awaited_once_with(context, "a@corp.com", "token")
 
+    async def test_context_strategy_dispatches_optional_credentials(self) -> None:
+        fake_strategy = AsyncMock(return_value=True)
+        registry.AUTH_STRATEGIES.clear()
+        registry.AUTH_STRATEGIES["cloudzero"] = AuthStrategySpec(
+            func=fake_strategy,
+            requires_page=False,
+            credentials=("cloudzero_email",),
+            optional_credentials=("username", "password"),
+            skip_if_missing="skip",
+        )
+
+        page = object()
+        context = object()
+        creds = SimpleNamespace(
+            cloudzero_email="cloud@example.com",
+            username="user@example.com",
+            password="secret",
+        )
+
+        ok = await registry.execute_auth_strategy("cloudzero", page, context, creds)
+
+        self.assertTrue(ok)
+        fake_strategy.assert_awaited_once_with(
+            context,
+            "cloud@example.com",
+            "user@example.com",
+            "secret",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

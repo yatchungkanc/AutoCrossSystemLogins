@@ -23,6 +23,7 @@ class AuthStrategySpec:
     func: Callable[..., Awaitable[bool]]
     requires_page: bool
     credentials: tuple[str, ...]
+    optional_credentials: tuple[str, ...] = ()
     skip_if_missing: str | None = None
 
 

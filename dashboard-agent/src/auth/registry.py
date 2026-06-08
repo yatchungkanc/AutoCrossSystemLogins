@@ -46,6 +46,7 @@ AUTH_STRATEGIES: dict[str, AuthStrategySpec] = {
         func=login_cloudzero,
         requires_page=False,
         credentials=("cloudzero_email",),
+        optional_credentials=("username", "password"),
         skip_if_missing="  → Skipping cloudzero: no credentials configured.",
     ),
     "atlassian": AuthStrategySpec(
@@ -69,6 +70,7 @@ async def execute_auth_strategy(auth_type: str, page: Page, context: BrowserCont
         if strategy.skip_if_missing:
             logger.info(strategy.skip_if_missing)
             return True
+    values.extend(getattr(creds, field, "") for field in strategy.optional_credentials)
 
     target = page if strategy.requires_page else context
     return await strategy.func(target, *values)

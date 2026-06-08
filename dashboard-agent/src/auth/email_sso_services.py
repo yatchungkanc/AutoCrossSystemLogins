@@ -5,6 +5,7 @@ from playwright.async_api import BrowserContext
 
 from .common import (
     _wait_for_redirect_to_settle,
+    authenticate_sso,
     handle_microsoft_account_picker,
     run_email_login_strategy,
 )
@@ -18,7 +19,12 @@ async def login_cloudhealth(context: BrowserContext, email: str) -> bool:
     return await run_email_login_strategy(context, email, CLOUDHEALTH_LOGIN)
 
 
-async def login_cloudzero(context: BrowserContext, email: str) -> bool:
+async def login_cloudzero(
+    context: BrowserContext,
+    email: str,
+    sso_username: str = "",
+    sso_password: str = "",
+) -> bool:
     """Login to CloudZero — email entry, account selection, then SSO redirect."""
     logger.info("  → Authenticating to CloudZero...")
     page = await context.new_page()
@@ -49,7 +55,10 @@ async def login_cloudzero(context: BrowserContext, email: str) -> bool:
 
             await page.wait_for_load_state("load")
 
-            # On repeat logins Microsoft may show an account chooser modal.
+            # On fresh profiles CloudZero redirects into Microsoft SSO. On repeat
+            # logins Microsoft may instead show an account chooser modal.
+            await handle_microsoft_account_picker(page, email)
+            await _authenticate_if_on_microsoft_sso(page, sso_username, sso_password)
             await handle_microsoft_account_picker(page, email)
 
             try:
@@ -60,6 +69,7 @@ async def login_cloudzero(context: BrowserContext, email: str) -> bool:
             except Exception:
                 # Retry once after another account-picker check.
                 await handle_microsoft_account_picker(page, email)
+                await _authenticate_if_on_microsoft_sso(page, sso_username, sso_password)
                 await page.wait_for_url(
                     lambda url: CLOUDZERO_LOGIN.redirect_complete(url),
                     timeout=CLOUDZERO_LOGIN.redirect_timeout_ms,
@@ -79,6 +89,21 @@ async def login_cloudzero(context: BrowserContext, email: str) -> bool:
             return False
     finally:
         await page.close()
+
+
+async def _authenticate_if_on_microsoft_sso(
+    page,
+    sso_username: str,
+    sso_password: str,
+) -> None:
+    if "microsoftonline.com" not in page.url:
+        return
+    if not sso_username or not sso_password:
+        logger.warning("  → CloudZero reached Microsoft SSO but SSO credentials are missing.")
+        return
+
+    logger.info("  → CloudZero redirected to Microsoft SSO; authenticating...")
+    await authenticate_sso(page, sso_username, sso_password)
 
 
 async def login_atlassian(context: BrowserContext, email: str, api_token: str) -> bool:
