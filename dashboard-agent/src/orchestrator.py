@@ -10,7 +10,7 @@ from pathlib import Path
 # (e.g. DEP0169 url.parse). Must be set before async_playwright() is called.
 os.environ.setdefault("NODE_NO_WARNINGS", "1")
 
-from playwright.async_api import async_playwright, BrowserContext, Page
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from playwright.sync_api import sync_playwright as _sync_playwright
 
 from src.config.loader import Credentials, load_credentials
@@ -124,6 +124,40 @@ def launch_detached_browser(port: int, chrome: str) -> subprocess.Popen:
     return proc
 
 
+async def connect_to_cdp_browser(
+    pw,
+    port: int,
+    attempts: int = 10,
+    retry_delay_s: int = 2,
+) -> Browser:
+    for attempt in range(attempts):
+        try:
+            return await pw.chromium.connect_over_cdp(f"http://localhost:{port}")
+        except Exception:
+            if attempt == attempts - 1:
+                raise
+            logger.info(f"  → Browser not ready, retrying ({attempt + 1}/{attempts})...")
+            await asyncio.sleep(retry_delay_s)
+
+    raise RuntimeError("unreachable")
+
+
+async def ensure_browser(pw, port: int, chrome: str) -> Browser:
+    try:
+        browser = await connect_to_cdp_browser(pw, port, attempts=1, retry_delay_s=0)
+        logger.info(f"Reusing existing browser on debug port {port}.")
+        return browser
+    except Exception:
+        logger.info(f"Launching browser on debug port {port}...")
+        launch_detached_browser(port, chrome)
+        logger.info("Waiting for browser to start...")
+        await asyncio.sleep(2)
+        logger.info("Connecting to browser via CDP...")
+        browser = await connect_to_cdp_browser(pw, port)
+        logger.info("Connected.")
+        return browser
+
+
 def is_first_run() -> bool:
     return not SETUP_MARKER.exists()
 
@@ -134,25 +168,11 @@ async def run_setup(chrome: str):
     dashboards = load_dashboards()
     required_auth = {db["auth_type"] for db in dashboards}
     logger.info("=== FIRST-RUN SETUP ===")
-    logger.info(f"Launching browser on debug port {port}...")
-    launch_detached_browser(port, chrome)
-    logger.info("Waiting for browser to start...")
-    await asyncio.sleep(2)
 
     pw = await async_playwright().start()
     browser = None
     try:
-        logger.info("Connecting to browser via CDP...")
-        for attempt in range(10):
-            try:
-                browser = await pw.chromium.connect_over_cdp(f"http://localhost:{port}")
-                break
-            except Exception:
-                if attempt == 9:
-                    raise
-                logger.info(f"  → Browser not ready, retrying ({attempt + 1}/10)...")
-                await asyncio.sleep(2)
-        logger.info("Connected.")
+        browser = await ensure_browser(pw, port, chrome)
         context = browser.contexts[0]
         page = context.pages[0] if context.pages else await context.new_page()
 
@@ -231,30 +251,27 @@ async def _dispatch_auth(
     return await execute_auth_strategy(auth_type, page, context, creds)
 
 
+def _latest_open_page(context: BrowserContext, fallback: Page) -> Page:
+    pages = list(context.pages)
+    return pages[-1] if pages else fallback
+
+
+async def _close_pages_except(context: BrowserContext, keep: Page) -> None:
+    for p in list(context.pages):
+        if p != keep:
+            await p.close()
+
+
 async def run(chrome: str, filters: list[str] | None = None) -> bool:
     creds = load_credentials()
     dashboards = load_dashboards(filters)
 
     port = CDP_PORT  # Changed from: get_free_port()
-    logger.info(f"Launching browser on debug port {port}...")
-    launch_detached_browser(port, chrome)
-    logger.info("Waiting for browser to start...")
-    await asyncio.sleep(2)
 
     pw = await async_playwright().start()
     browser = None
     try:
-        logger.info("Connecting to browser via CDP...")
-        for attempt in range(10):
-            try:
-                browser = await pw.chromium.connect_over_cdp(f"http://localhost:{port}")
-                break
-            except Exception:
-                if attempt == 9:
-                    raise
-                logger.info(f"  → Browser not ready, retrying ({attempt + 1}/10)...")
-                await asyncio.sleep(2)
-        logger.info("Connected.")
+        browser = await ensure_browser(pw, port, chrome)
         context = browser.contexts[0]
 
         page = context.pages[0] if context.pages else await context.new_page()
@@ -273,24 +290,27 @@ async def run(chrome: str, filters: list[str] | None = None) -> bool:
         # Run sequentially and clean up any lingering tabs between services so each
         # auth flow gets its own isolated window and CloudZero starts only after
         # Atlassian has finished its redirect flow.
-        for auth_type in [t for t in ("cloudhealth", "atlassian", "cloudzero") if t in required_auth]:
+        context_auth_types = [
+            t for t in ("cloudhealth", "atlassian", "cloudzero") if t in required_auth
+        ]
+        for idx, auth_type in enumerate(context_auth_types):
             logger.info(f"[1/3] Authenticating: {auth_type}...")
             auth_results[auth_type] = await _dispatch_auth(auth_type, page, context, creds)
             logger.info(f"[1/3] {auth_type}: {'ok' if auth_results[auth_type] else 'FAILED'}.")
-            # Close any extra pages (e.g. SSO popups) before the next service starts
-            for p in list(context.pages):
-                if p != page:
-                    await p.close()
+            page = _latest_open_page(context, page)
+            # Close any extra pages (e.g. SSO popups) before the next service starts.
+            # Keep the final service's successful page so dashboard navigation can
+            # continue from the authenticated landing tab instead of a fresh one.
+            if idx < len(context_auth_types) - 1:
+                await _close_pages_except(context, page)
 
-        active_page = context.pages[-1]
+        active_page = _latest_open_page(context, page)
         await active_page.wait_for_load_state("load")
 
         # Close any extra pages opened during auth (keep active_page)
-        for p in list(context.pages):
-            if p != active_page:
-                await p.close()
+        await _close_pages_except(context, active_page)
 
-        # Step 2: Open all dashboard tabs in parallel
+        # Step 2: Open all dashboard tabs
         logger.info(f"[2/3] Opening {len(dashboards)} dashboard tabs...")
 
         async def open_tab(db: dict, idx: int) -> dict:
@@ -309,7 +329,9 @@ async def run(chrome: str, filters: list[str] | None = None) -> bool:
                 logger.warning(f"  → [{db['name']}] failed: {e}")
                 return {"name": db["name"], "ok": False}
 
-        results = await asyncio.gather(*[open_tab(db, i) for i, db in enumerate(dashboards)])
+        results = []
+        for i, db in enumerate(dashboards):
+            results.append(await open_tab(db, i))
 
         # Step 3: Summary
         ok_count = sum(1 for r in results if r["ok"])

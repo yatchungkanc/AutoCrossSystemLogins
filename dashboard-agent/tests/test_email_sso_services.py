@@ -123,6 +123,62 @@ class EmailServiceTests(unittest.IsolatedAsyncioTestCase):
 
         auth_mock.assert_not_awaited()
 
+    async def test_login_cloudzero_keeps_successful_app_tab_open(self) -> None:
+        class FakePage:
+            def __init__(self) -> None:
+                self.url = "about:blank"
+                self.close = AsyncMock()
+
+            async def goto(self, url: str) -> None:
+                self.url = "https://next.cloudzero.com/explorer?date_range=last_30_days"
+
+            async def wait_for_load_state(self, state: str) -> None:
+                pass
+
+        page = FakePage()
+        context = SimpleNamespace(new_page=AsyncMock(return_value=page))
+
+        ok = await email_sso_services.login_cloudzero(
+            context,
+            "person@example.com",
+            "sso@example.com",
+            "secret",
+        )
+
+        self.assertTrue(ok)
+        page.close.assert_not_awaited()
+
+    async def test_login_cloudzero_closes_failed_login_tab(self) -> None:
+        class FailingLocator:
+            @property
+            def first(self):
+                return self
+
+            async def wait_for(self, timeout: int) -> None:
+                raise TimeoutError("no email field")
+
+        class FakePage:
+            def __init__(self) -> None:
+                self.url = "https://auth.cloudzero.com/u/login/"
+                self.close = AsyncMock()
+
+            async def goto(self, url: str) -> None:
+                pass
+
+            async def wait_for_load_state(self, state: str) -> None:
+                pass
+
+            def locator(self, selector: str) -> FailingLocator:
+                return FailingLocator()
+
+        page = FakePage()
+        context = SimpleNamespace(new_page=AsyncMock(return_value=page))
+
+        ok = await email_sso_services.login_cloudzero(context, "person@example.com")
+
+        self.assertFalse(ok)
+        page.close.assert_awaited_once()
+
 
 if __name__ == "__main__":
     unittest.main()

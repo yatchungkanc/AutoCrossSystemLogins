@@ -28,6 +28,7 @@ async def login_cloudzero(
     """Login to CloudZero — email entry, account selection, then SSO redirect."""
     logger.info("  → Authenticating to CloudZero...")
     page = await context.new_page()
+    keep_page_open = False
     try:
         await page.goto(CLOUDZERO_LOGIN.login_url)
         await page.wait_for_load_state("load")
@@ -35,6 +36,7 @@ async def login_cloudzero(
 
         if CLOUDZERO_LOGIN.already_logged_in(page.url):
             logger.info("  → Already logged into CloudZero, skipping.")
+            keep_page_open = True
             return True
 
         logger.info(f"  → CloudZero login page URL: {page.url}")
@@ -83,12 +85,16 @@ async def login_cloudzero(
             ok = CLOUDZERO_LOGIN.redirect_complete(page.url)
             if not ok:
                 logger.warning(f"  → CloudZero login did not finish on an app URL: {page.url}")
+            keep_page_open = ok
             return ok
         except Exception as exc:
             logger.warning(f"  → CloudZero login failed: {exc}")
             return False
     finally:
-        await page.close()
+        if keep_page_open:
+            logger.info("  → Keeping CloudZero tab open for dashboard navigation.")
+        else:
+            await page.close()
 
 
 async def _authenticate_if_on_microsoft_sso(
