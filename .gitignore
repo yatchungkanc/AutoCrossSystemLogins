@@ -32,3 +32,5 @@ dashboard-agent/output/*_graphs/
 # OS
 .DS_Store
 Thumbs.db
+dashboard-agent/product_rdp-portfolio_projection*.html
+dashboard-agent/storage_cost_report*.html
